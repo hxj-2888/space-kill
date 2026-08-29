@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>太空杀 · 星途归航 — 剧情与规则</title>
+<meta name="description" content="太空杀：15 人三阵营（人类 / 异形 / 外星人）身份博弈桌游的剧情与规则。">
+<style>
+:root {{ --bg:#0a0a0f; --card:#141420; --line:#252535; --text:#e0e0ea; --muted:#8888a0; --accent:#818cf8 }}
+* {{ margin:0; padding:0; box-sizing:border-box }}
+body {{ background:var(--bg); color:var(--text); font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; line-height:1.8;
+  background-image:radial-gradient(1200px 500px at 70% -10%, rgba(99,102,241,.14), transparent), radial-gradient(900px 420px at 10% 110%, rgba(124,58,237,.10), transparent) }}
+.wrap {{ max-width:64rem; margin:0 auto; padding:72px 22px 96px }}
+.kicker {{ font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent) }}
+h1 {{ font-size:clamp(30px,5.4vw,46px); letter-spacing:-.02em; color:#fff; margin:12px 0 14px }}
+.sub {{ color:var(--muted); max-width:46rem }}
+.grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:18px; margin-top:44px }}
+.card {{ display:block; background:var(--card); border:1px solid var(--line); border-radius:20px; padding:24px 22px; text-decoration:none; color:var(--text); transition:.2s }}
+.card:hover {{ transform:translateY(-3px); border-color:var(--accent); box-shadow:0 12px 32px rgba(99,102,241,.15) }}
+.card .tag {{ font-size:12px; color:var(--accent); letter-spacing:.14em; text-transform:uppercase }}
+.card h2 {{ font-size:19px; color:#fff; margin:8px 0 6px }}
+.card p {{ color:var(--muted); font-size:14px }}
+.foot {{ margin-top:56px; color:var(--muted); font-size:13px }}
+.foot a {{ color:var(--accent); text-decoration:none }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Space Kill · 公测 2.0</div>
+  <h1>太空杀 · 星途归航</h1>
+  <p class="sub">15 人三阵营（人类 11 / 异形 3 / 外星人 1）身份博弈桌游。这里收录官方剧情（三条胜利线）与正式规则。</p>
+  <div class="grid">
+    <a class="card" href="story-human.html"><div class="tag">剧情</div><h2>人类胜利线</h2><p>星途归航 · 最终版——信天翁号的二十昼夜。</p></a>
+    <a class="card" href="story-alien.html"><div class="tag">剧情</div><h2>外星人胜利线</h2><p>星途归航 · 修订版——船体深处的低语。</p></a>
+    <a class="card" href="story-xeno.html"><div class="tag">剧情</div><h2>异形胜利线</h2><p>寄生、觉醒与破壳之夜。</p></a>
+    <a class="card" href="rules.html"><div class="tag">规则</div><h2>游戏规则 v1.2</h2><p>三阵营对抗 · 正式发布版全部条款与注释。</p></a>
+  </div>
+  <div class="foot"> <a href="https://github.com/hxj-2888/space-kill" rel="noopener" target="_blank">GitHub 仓库</a></div>
+</div>
+</body>
+</html>

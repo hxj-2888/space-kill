@@ -1,0 +1,79 @@
+# ===== GitHub Actions — Cloudflare Pages 自动部署（太空杀）=====
+# 触发: push 到 main（或手动 workflow_dispatch）
+# 效果: 部署 site/（仅「剧情 / 规则」静态页）到 Cloudflare Pages 项目 space-kill
+# 依赖 GitHub Secrets（与其他项目相同值）:
+#   CF_API_TOKEN     Cloudflare API Token（Pages Edit 权限）
+#   CF_ACCOUNT_ID    Cloudflare 账户 ID
+# 站点由 tools/build_site.py 从 公测2.0/*.docx 生成；CI 会重建并比对，防止 site/ 与源文档脱节。
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ===== 质量门禁: 重建站点并与提交内容比对 =====
+  check:
+    name: Rebuild site & diff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install python-docx
+        run: pip install python-docx
+
+      - name: Rebuild site from docx
+        run: python3 tools/build_site.py
+
+      - name: Fail if committed site/ differs from rebuilt output
+        run: |
+          git diff --exit-code -- site/ || {
+            echo '::error::site/ 与 公测2.0 源文档不一致，请本地运行 python tools/build_site.py 后提交';
+            exit 1;
+          }
+
+  # ===== Cloudflare Pages 正式版（space-kill, 生产分支 main）=====
+  deploy-cloudflare:
+    name: Cloudflare Pages (production)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy site --project-name=space-kill --branch=main --commit-hash=${{ github.sha }}
+
+  # ===== 部署后冒烟验证 =====
+  smoke-test:
+    name: Post-deploy smoke test
+    needs: deploy-cloudflare
+    runs-on: ubuntu-latest
+    steps:
+      - name: 首页
+        run: curl -fsSL -o /dev/null --max-time 30 "https://space-kill.pages.dev/"
+
+      - name: 规则页
+        run: curl -fsSL --max-time 30 "https://space-kill.pages.dev/rules.html" | head -c 200
+
+      - name: 剧情页
+        run: curl -fsSL --max-time 30 "https://space-kill.pages.dev/story-human.html" | head -c 200

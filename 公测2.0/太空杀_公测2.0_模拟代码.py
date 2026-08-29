@@ -45,6 +45,7 @@ ENGINEER_REPAIR_NIGHT1_2 = -0.5
 ENGINEER_REPAIR_NIGHT3PLUS = -1.5
 ENGINEER_APPEND = -0.5
 ACCEL_ENGINEER_REPAIR = -0.75
+NATURAL_DECAY = 1.0       # 每夜自然流逝（规则3.1/3.2，计入步骤4a减少总量）
 
 
 # ============================ 玩家 ============================
@@ -64,14 +65,21 @@ class Player:
         self.infection_death_night = None  # 步骤9触发夜
         self.infect_suppress_quota = 0     # 0->1 时获得1次
 
-        # 沉默
-        self.silent = 0           # 剩余沉默夜数(含次夜+次日白天投票)
-        self.silenced_once = False  # 公测2.0 7.4：是否已触发过沉默（全局仅1次）
+        # 沉默（规则2.1/6.4：次夜起生效，持续整夜 + 次日白天；全局仅触发1次）
+        self.silence_from = None  # 被外星人双刀命中的夜晚；次夜(self.night == from+1)生效
+        self.silenced_once = False
         self.suppressed = False   # 当夜被感染抑制，失去主动行动能力
 
-        # 免疫/护盾（每夜重置）
-        self.immune = 0           # 当夜全能免疫层数
-        self.shield = False       # 结茧护盾
+        # 免疫/护盾（规则2.1：分层 + 优先级 + 同类后进先出栈式消耗）
+        # protect/patrol 栈元素为 (来源, 施加者id)；施加者id用于规则4.6"被保护者与保镖知晓伤害类型"
+        self.protect_stack = []      # 保护类：保镖 / 武装船员保护（优先级1）
+        self.patrol_stack = []       # 巡逻类：警察巡逻（优先级2）
+        self.immune_tonight = False  # 被动免疫触发后当夜免疫所有伤害（优先级3）
+        self.shield = False          # 结茧护盾：跨夜保留，抵挡1次后消失（优先级4）
+
+        # 信息反馈（规则3.4/4.5/4.6/6.2）：当夜本人收到的提示；保护者记录的命中抵挡
+        self.notices = []            # 被查验/被锁定/受袭抵挡等提示（每夜清空）
+        self.protected_hits = defaultdict(int)   # 本人施加保护成功抵挡的次数（目标→次数）
 
         # 子弹
         self.bullets = 0
@@ -104,7 +112,7 @@ class Player:
         self.fore_double_awakened = False  # 双刀可选觉醒：是否已觉醒双刀
         self.foreigner_sabotage_count = 0
         self.night_immune = 0     # 夜晚免疫次数
-        self.self_treat = 0       # 外星人感染自我治疗次数
+        self.self_treat = 0       # 外星人感染自我治疗次数（【外星人加强】免疫感染后恒为0，规则6.8作废）
 
         # 一次性额度
         self.doctor_rescue = 0
@@ -179,6 +187,7 @@ class Game:
         # 日志
         self.log = []
         self.announce = []        # 公开公告（玩家可见）
+        self._pending_announce = []  # 计划阶段(run_night 之前)产生的公告，下一夜并入
         self.snapshots = []       # 逐夜快照
 
         # 私聊配对（当夜）
@@ -190,8 +199,6 @@ class Game:
         self.crew_repair_count = 0
         # 驱逐身份公开记录（职业公开后用于报告统计）
         self.ejection_log = []   # 每条: (night, pid, camp, role)
-        # 外星人破坏减速剩余夜数（公测2.0 6.5，全局状态）
-        self.fore_slow_remain = 0
         # 工程师追加维修全局次数剩余（公测2.0 3.1：共3次）
         self.engineer_append_left = 3
         # 已因累计破坏3次而暴露编号的异形（公测2.0 3.1，只暴露一次）
@@ -278,7 +285,8 @@ class Game:
                 p.doctor_treat = 1
             if p.role == '外星人':
                 p.night_immune = 1
-                p.self_treat = 2  # 外星人加强：感染自我治疗调整为2次
+                # 【外星人加强】免疫感染 → 不再需要感染自我治疗额度（规则6.8 作废）
+                p.self_treat = 0
         return players
 
     def _camp_of(self, role):
@@ -313,42 +321,78 @@ class Game:
         self.deaths.append((self.night, p.id, p.camp, cause))
 
     # ===================== 伤害/感染结算 =====================
+    # 规则2.1 免疫叠加消耗优先级：1 保护类 → 2 巡逻类 → 3 被动免疫 → 4 护盾类
+    # 同类按施加时间后进先出（栈式）消耗。
+    def _consume_immunity(self, t, cause=None):
+        """按优先级消耗一层免疫，返回被消耗的层类型；无免疫返回 None。
+        cause 用于规则4.6：被保护者与施加保护的保镖/武装船员/警察知晓伤害类型。"""
+        if t.protect_stack:
+            kind, src = t.protect_stack.pop()
+            t.notices.append("你受到了【%s】伤害，被保护抵挡。" % (cause or '袭击'))
+            if src is not None and src != t.id:
+                self.players[src].protected_hits[t.id] += 1
+            return kind
+        if t.patrol_stack:
+            kind, src = t.patrol_stack.pop()
+            t.notices.append("你受到了【%s】伤害，被巡逻免疫抵挡。" % (cause or '袭击'))
+            if src is not None and src != t.id:
+                self.players[src].protected_hits[t.id] += 1
+            return kind
+        # 被动免疫：工程师第1夜（不消耗，持续整夜）
+        if t.role == '工程师' and getattr(t, 'engineer_night1_immune', False) and self.night == 1:
+            return 'engineer_passive'
+        # 被动免疫：外星人夜晚免疫（自动触发，当夜剩余时间免疫所有伤害）
+        if t.is_foreigner() and t.night_immune > 0:
+            t.night_immune -= 1
+            t.immune_tonight = True
+            return 'foreigner_night_immune'
+        if getattr(t, 'immune_tonight', False):
+            return 'immune_tonight'
+        # 护盾类：异形结茧（跨夜保留）
+        if t.shield:
+            t.shield = False
+            return 'shield'
+        return None
+
+    def _is_silenced(self, p):
+        """规则2.1/6.4：被双刀命中后的【次夜】无法执行夜间技能，次日白天投票强制弃权。"""
+        return p.silence_from is not None and self.night == p.silence_from + 1
+
+    def _is_silenced_day(self, p):
+        """次日白天投票强制弃权（白天发生在同夜编号之后，故判定同为 from+1）。"""
+        return p.silence_from is not None and self.night == p.silence_from + 1
+
     def apply_harm(self, target_id, cause):
         """造成濒死/死亡。返回 'dead' / 'dying' / 'blocked' / 'immune' 。"""
         t = self.players[target_id]
         if not t.alive:
             return 'already_dead'
-        # 2.1总则：濒死状态下除医生自救外，所有主动行动与被动技能（含全能免疫/护盾/夜晚免疫）全部失效。
-        # 因此濒死者再次受击 → 直接死亡，不检查任何免疫层。
+        # 2.1总则 + 注释⑪：濒死者再次受击 → 直接死亡，不检查任何免疫层。
         if t.dying:
             self.add_death(t, cause)
             return 'dead'
-        # 公测2.0 4.2：工程师第1夜被动全能免疫（第1夜内所有伤害全部免疫，不消耗）
-        if t.role == '工程师' and getattr(t, 'engineer_night1_immune', False) and self.night == 1:
-            return 'immune'  # 第1夜持续免疫，不消耗；第2夜起由 engine_night1 判定自然失效
-        if t.immune > 0:
-            t.immune -= 1
-            return 'immune'
-        # 公测2.0 6.6：外星人夜晚免疫（自动触发，当夜剩余时间免疫所有伤害）。
-        # 注意：护盾/保护完全抵挡时不触发不消耗；因此夜晚免疫应在护盾检查之后。
-        if t.shield:
-            t.shield = False
-            return 'blocked'
-        if t.is_foreigner() and t.night_immune > 0:
-            t.night_immune -= 1
-            t.immune = 999  # 当夜剩余时间免疫所有伤害
-            return 'immune'
+        used = self._consume_immunity(t, cause)
+        if used is not None:
+            # 保护/巡逻/被动免疫抵挡 → 'immune'（不触发夜晚免疫消耗）
+            return 'blocked' if used == 'shield' else 'immune'
         t.dying = True
         t.death_cause = cause
         return 'dying'
 
     def apply_infection(self, target_id, src_id):
+        """规则3.4 + 【外星人加强】：外星人免疫感染。
+        注意：外星人仍可被异形【指定】为感染目标（异形无从得知其身份），
+        只是不生效 —— 等于让异形白白浪费一个感染名额。"""
         t = self.players[target_id]
         if not t.alive or t.is_alien():
-            return 'invalid'  # 外星人削弱：不再免疫异形感染，可被感染
+            return 'invalid'  # 3.4：异形自身免疫
+        if t.is_foreigner():
+            # 可被指定，但不生效（不消耗免疫层、不进入濒死判定以外的任何流程）
+            return 'blocked'
         if t.dying:
             return 'invalid'
-        if t.immune > 0 or t.shield:
+        # 全能免疫可抵挡感染施加（5.4）；护盾/被动免疫同样按优先级消耗
+        if self._consume_immunity(t, '感染') is not None:
             return 'blocked'
         if t.infection >= 1:
             return 'blocked'  # 上限1层，不叠加
@@ -356,7 +400,7 @@ class Game:
             return 'blocked'
         t.infection = 1
         t.infection_src = src_id
-        t.infection_death_night = self.night + 2  # 当夜为第1夜，死亡在第3夜步骤9
+        t.infection_death_night = self.night + 2  # 感染后下下夜步骤9死亡
         t.infect_suppress_quota = 1
         return 'infected'
 
@@ -367,12 +411,16 @@ class Game:
         humans = self.alive_humans()
         aliens = self.alive_aliens()
         fore = self.alive_foreigners()
-        # 人类清场
-        if len(aliens) == 0 and len(fore) == 0:
+        # 边界：全场无人生还（规则未定义 → 裁决：判平局）
+        if len(humans) == 0 and len(aliens) == 0 and len(fore) == 0:
+            self._end('draw', '全场无人生还', reason)
+            return
+        # 人类清场（须至少1名人类存活，含濒死）
+        if len(aliens) == 0 and len(fore) == 0 and len(humans) >= 1:
             self._end('human', '清场胜利', reason)
             return
-        # 异形清场
-        if len(humans) == 0 and len(fore) == 0:
+        # 异形胜：所有非异形被淘汰
+        if len(humans) == 0 and len(fore) == 0 and len(aliens) >= 1:
             self._end('alien', '清场胜利', reason)
             return
         # 外星人独存
@@ -391,19 +439,27 @@ class Game:
     # ===================== 夜晚主循环 =====================
     def run_night(self):
         self.night += 1
-        self.announce = []
+        # 计划阶段（run_night 之前）产生的公告在此并入当夜公告
+        self.announce = list(getattr(self, '_pending_announce', []))
+        self._pending_announce = []
         self.chat_pairs = []
         self.chat_announce = []
 
-        # 每夜重置临时免疫/护盾/伪装/沉默倒计时
+        # 每夜重置（规则2.1：保护/巡逻免疫层施加当夜有效，白天阶段开始时清空；
+        # 结茧护盾跨夜保留、抵挡1次后消失，故此处不清空）
         for p in self.players:
-            p.immune = 0
-            p.shield = False
+            p.protect_stack = []
+            p.patrol_stack = []
+            p.immune_tonight = False
             p.disguised = False
             p.suppressed = False
-            if p.silent > 0:
-                p.silent -= 1
-        # 外星人夜晚免疫：公测2.0 恢复"仅初始1次"，移除公测1.2.1 的"第10夜额外1次（1v1触发）"加强。
+            p.notices = []          # 当夜信息反馈清空（被查验/受袭抵挡等提示）
+            # 抗体：下一夜免疫，不跨夜（生化医师自身常驻免疫除外）
+            if p.role != '生化医师' and getattr(p, '_antibody_night', None) is not None:
+                if self.night > p._antibody_night + 1:
+                    p.has_antibody = False
+                    p._antibody_night = None
+        # 规则6.6：外星人夜晚免疫初始1次（本版无第10夜补充额度）
 
         # ---- 步骤0 私聊（非 1.4 模式）----
         if not self.night_war:
@@ -458,19 +514,13 @@ class Game:
         self.step9_death_resolution()
 
         # ---- 步骤10 验票官紧急会议 ----
-        self._emergency_triggered = False
         self.step10_emergency()
 
         # ---- 步骤11 最终倒计时 ----
-        # 1.4 夜晚交锋模式：倒计时、维修、破坏、停摆全部冻结（规则要求），仅保留夜晚行动与死亡公告。
-        # 紧急会议已触发也跳过步骤11（不计自然流逝、不结算倒计时）。
-        if not self.night_war and not self._emergency_triggered:
-            # 船体倒计时每夜基础 -1（规则：倒计时逐夜流逝；维修为负向、破坏为正向修正）
-            # 外星人破坏加强：倒计时停转一个晚上（自然流逝为0）
-            if self.fore_slow_remain > 0:
-                self.fore_slow_remain -= 1  # 本夜倒计时完全停转
-            else:
-                self.countdown -= 1.0
+        # 规则3.2：自然流逝 -1.0 与全部维修已在步骤4a计入（受外星人破坏整体锁定）。
+        # 规则注释⑬：紧急会议若未触发胜利，照常执行步骤11。
+        # 1.4 夜晚交锋模式：倒计时/维修/破坏/停摆全部冻结。
+        if not self.night_war:
             self.step11_countdown()
 
         # 记录快照
@@ -490,11 +540,22 @@ class Game:
     # ---------- 步骤0 私聊 ----------
     def step0_private_chat(self):
         alive = self.alive_players()
-        # 异形队内私聊免费（不占公共权限，无公告），这里仅处理公共私聊
+        # 规则5.1/2.3：异形队内私聊免费、无公告、不占公共权限 → 队内信息互通
+        aliens = self.alive_aliens()
+        if len(aliens) >= 2:
+            for a in aliens:
+                for b in aliens:
+                    if a.id != b.id:
+                        for tid, v in a.known.items():
+                            if tid not in b.known:
+                                b.known[tid] = v
+                        for tid, s in a.exclude_info.items():
+                            b.exclude_info.setdefault(tid, set(s))
         # 每位存活玩家 1 发起 + 1 接受
         initiates = {}  # pid -> target or None
         for p in alive:
-            if p.dying:
+            # 规则2.3：濒死 / 沉默 / 感染抑制者无权发起私聊
+            if p.dying or self._is_silenced(p) or p.suppressed:
                 continue
             tgt = self.ai_choose_chat_target(p, alive)
             initiates[p.id] = tgt
@@ -566,31 +627,44 @@ class Game:
 
     # ---------- 步骤0.5 感染抑制 ----------
     def step05_infection_suppress(self):
+        # 【外星人加强】外星人免疫感染（infection 恒为 0），不会进入本流程；
+        # 规则0.5「外星人使用抑制时自动放弃当夜三选一行动」随之不再触发。
         for p in self.alive_players():
-            # 2.1总则：感染抑制为主动技能，濒死时失效
-            if p.dying:
+            if not p.alive or p.infection != 1:
                 continue
-            if p.infection == 1 and p.infect_suppress_quota > 0:
-                # 高概率使用抑制（避免死亡），尤其后期/关键角色
-                use = False
-                if self.strategy == 'random':
-                    use = self.rng.random() < 0.5
-                else:
-                    # 高水平：若死亡会重创阵营则抑制
+            # 注释⑥：额度未使用且感染持续存在时，每夜重新获得1次额度（顶替旧额度）
+            p.infect_suppress_quota = 1
+            # 2.1总则：濒死者主动技能失效；3.4：沉默优先覆盖抑制（额度保留到沉默结束后）
+            if p.dying or self._is_silenced(p):
+                continue
+            if self.strategy == 'random':
+                use = self.rng.random() < 0.5
+            else:
+                # 高水平权衡：抑制=用"当夜全部主动技能"换"死亡延后1夜"
+                urgent = (p.infection_death_night is not None
+                          and p.infection_death_night <= self.night + 1)
+                if urgent:
                     use = True
-                if use:
-                    p.infect_suppress_quota -= 1
-                    # 公测2.0 修正：抑制=在原死亡夜基础上延后1夜。
-                    # 例：第1夜感染(死亡夜3)→第2夜抑制→死亡夜4（第4夜步骤9），符合规则"移到第四晚"。
-                    if p.infection_death_night is not None:
-                        p.infection_death_night += 1
-                    else:
-                        p.infection_death_night = self.night + 3
-                    # 公测2.0 0.5：当夜失去所有主动行动能力（不进入沉默，不影响白天投票）
-                    p.suppressed = True
+                else:
+                    use = self.rng.random() < 0.75
+            if use:
+                p.infect_suppress_quota = 0
+                if p.infection_death_night is not None:
+                    p.infection_death_night += 1
+                else:
+                    p.infection_death_night = self.night + 3
+                # 规则0.5：当夜所有主动技能失效（不影响白天发言与投票）
+                p.suppressed = True
+                # 规则3.4：抑制时施加者收到提示（不透露患者编号）
+                self._notify_infection_cleared(p)
+                # 规则0.5：外星人使用抑制时自动放弃当夜三选一行动
+                if p.is_foreigner():
+                    p._foreigner_action = None
 
     # ---------- 步骤0.6 觉醒/转化/转职 ----------
     def step06_awaken_transform_transfer(self):
+        # ⓪ 转化结算（规则5.3）：次夜步骤0.6生效；次夜0.6前死亡/濒死则作废回滚
+        self._resolve_pending_transform()
         # ① 普通船员转职
         alive_total = len(self.alive_players())
         for p in self.alive_players():
@@ -608,15 +682,44 @@ class Game:
                         # 高水平：根据局势选择
                         self._do_transfer(p)
         # ② 异形觉醒（第3夜起）
+        # 注释⑦：觉醒与转化不得在同一夜执行
+        awakened_tonight = set()
+        self._awakened_tonight = 0
         if self.night >= 3:
             for p in self.alive_aliens():
                 if not p.awakened and p.alive and not p.dying:
-                    self._alien_maybe_awaken(p)
-        # ③ 异形转化（已觉醒，第3夜起）
+                    if self._alien_maybe_awaken(p):
+                        awakened_tonight.add(p.id)
+        # ③ 异形转化（已觉醒、当夜未觉醒、且无待生效转化者，第3夜起）
         if self.night >= 3:
             for p in self.alive_aliens():
-                if p.awakened and not p.dying:
+                if (p.awakened and not p.dying and p.id not in awakened_tonight
+                        and getattr(p, '_pending_transform', None) is None):
                     self._alien_maybe_transform(p)
+        # 觉醒公告（规则5.2：仅公告数量，不披露方向/编号）
+        if self._awakened_tonight:
+            self.announce_msg("今晚有 %d 只异形觉醒。" % self._awakened_tonight)
+
+    def _resolve_pending_transform(self):
+        """规则5.3：转化次夜步骤0.6生效；次夜0.6前死亡/濒死 → 作废回滚（不公告、不计次数）。"""
+        for p in self.players:
+            pend = getattr(p, '_pending_transform', None)
+            if pend is None:
+                continue
+            old, nd, n, first_occupy = pend
+            if (not p.alive) or p.dying:
+                p._pending_transform = None
+                p.transform_count -= 1
+                if first_occupy:
+                    self.awak_quota[nd] += 1
+                    p.awak_occupied.discard(nd)
+                self.transform_records = [r for r in self.transform_records
+                                          if not (r[0] == old and r[1] == nd and r[2] == n)]
+                continue
+            if self.night > n:
+                p.awak_dir = nd          # 新能力次夜生效
+                p._pending_transform = None
+                self.announce_msg("有异形能力转化。")
 
     def _do_transfer(self, p):
         if self.strategy == 'random':
@@ -634,6 +737,9 @@ class Game:
         p.transferred = True
         p.transfer_dir = d
         p.role = d
+        # 规则4.1：转职后原查验永久失效
+        p.crew_checks = {}
+        p.exclude_info = {}
         if d == '武装船员':
             p.bullets = 1
         elif d == '加速工程师':
@@ -672,12 +778,12 @@ class Game:
         # 选择额度>0的方向
         avail = [d for d in AWAK_DIRS if self.awak_quota[d] > 0]
         if not avail:
-            return
+            return False   # 额度已满 → 失败，不消耗机会
         if self.strategy == 'random':
             if self.rng.random() < 0.5:
                 d = self.rng.choice(avail)
             else:
-                return
+                return False
         else:
             # 高水平阵营协同：与队友错开方向，避免重复浪费
             teammates_dirs = set()
@@ -715,7 +821,8 @@ class Game:
         p.awak_dir = d
         p.awak_night = self.night
         self.awak_choices.append((d, self.night))
-        self.announce_msg("今晚有 1 只异形觉醒。")
+        self._awakened_tonight = getattr(self, '_awakened_tonight', 0) + 1
+        return True
 
     def _alien_maybe_transform(self, p):
         # 已觉醒异形可转化（全局最多2次）
@@ -763,17 +870,16 @@ class Game:
         # 4. 当前方向不减额（永久占位）；旧方向额度不释放
         if self.awak_quota[nd] <= 0:
             return
-        if nd not in p.awak_occupied:
+        first_occupy = nd not in p.awak_occupied
+        if first_occupy:
             self.awak_quota[nd] -= 1  # 首次占用该方向：占位数+1
         p.awak_occupied.add(nd)
         old = p.awak_dir
-        p.awak_dir = nd
         p.transform_count += 1
         self.transform_records.append((old, nd, self.night))
-        # 转化当夜步骤7无行动（在step7处理）
+        # 转化当夜步骤7无行动；新方向次夜步骤0.6生效（由 _resolve_pending_transform 处理）
         p._transformed_this_night = True
-        # 公告次夜（这里标记，次夜步骤0.6结束后公告）
-        self._pending_transform_announce = True
+        p._pending_transform = (old, nd, self.night, first_occupy)
 
     def _acquire_awak(self, p, d):
         if self.awak_quota[d] > 0:
@@ -789,14 +895,15 @@ class Game:
         for p in self.alive_foreigners():
             if p.dying:
                 continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
+            if self._is_silenced(p) or p.suppressed:
+                continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
             if getattr(p, '_foreigner_action', None) == '查验':
                 target = self.ai_pick_check_target(p)
                 if target is not None:
                     t = self.players[target]
                     p.known[target] = {'camp': t.camp, 'role': t.role}
-                    # 被查者收到提示（仅本人知，不进公告）："你被查验了。"
+                    # 规则6.2：被查验者收到提示（仅本人知，不进公告）
+                    t.notices.append("你被查验了。")
                 # 使用查验当夜跳过步骤5（击杀）
 
     # ---------- 步骤2 查验/巡逻 ----------
@@ -805,8 +912,8 @@ class Game:
         det_checked = 0
         for p in self.alive_players():
             if p.role == '神探' and p.alive and not p.dying:
-                if p.silent > 0:
-                    continue  # 公测2.0 2.1：沉默者次夜无法执行夜间技能
+                if self._is_silenced(p):
+                    continue  # 规则2.1：沉默者次夜无法执行夜间技能
                 tgt = self.ai_pick_check_target(p)
                 if tgt is not None:
                     t = self.players[tgt]
@@ -815,17 +922,16 @@ class Game:
                         pass
                     else:
                         p.known[tgt] = {'camp': t.camp, 'role': t.role}
+                        # 规则4.5：被查者收到提示
+                        t.notices.append("你被查验了。")
                     p.crew_checks[tgt] = p.crew_checks.get(tgt, 0) + 1
                     det_checked += 1
-        # 普通船员查验
+        # 普通船员查验（注释⑧：协助维修自动触发，与查验不互斥）
         crew_checked = 0
         for p in self.alive_players():
             if p.role == '普通船员' and p.alive and not p.dying:
-                if p.silent > 0:
-                    continue  # 公测2.0 2.1：沉默者次夜无法执行夜间技能
-                # 与维修互斥：若选择维修则跳过
-                if self._crew_will_repair(p):
-                    continue
+                if self._is_silenced(p) or p.suppressed:
+                    continue  # 规则2.1/0.5：沉默/抑制者无法执行夜间技能
                 tgt = self.ai_pick_check_target(p)
                 if tgt is not None:
                     t = self.players[tgt]
@@ -834,17 +940,28 @@ class Game:
                         p.crew_checks.pop(tgt, None)
                         p.exclude_info.pop(tgt, None)
                     if t.disguised:
-                        # 无效：虚假排除
+                        # 规则7.1：外星人无伪装能力，此处仅作兜底
                         pass
                     else:
-                        # 公测2.0 4.1：首次查验获得"该玩家不是某职业"的排除信息（保证不排除真实职业）
+                        # 规则4.1 首次查验 + 注释⑳
                         if p.crew_checks.get(tgt, 0) == 0:
-                            p.exclude_info[tgt] = p.exclude_info.get(tgt, set())
-                            # 从人类职业中随机排除一个（排除者自身职业与目标真实职业之外）
-                            pool = [r for r in set(HUMAN_ROLES)
-                                    if r != t.role and r != p.role]
-                            if pool:
-                                p.exclude_info[tgt].add(self.rng.choice(pool))
+                            human_kinds = len({q.role for q in self.alive_humans()})
+                            if human_kinds <= 1 and t.is_human():
+                                p.known[tgt] = {'camp': t.camp, 'role': t.role}
+                            elif not t.is_human():
+                                # 目标为异形/外星人 → 告知"该玩家不是人类"
+                                p.known[tgt] = {'camp': 'nonhuman'}
+                            else:
+                                p.exclude_info[tgt] = p.exclude_info.get(tgt, set())
+                                pool = [r for r in set(HUMAN_ROLES)
+                                        if r != t.role and r != p.role]
+                                if pool:
+                                    p.exclude_info[tgt].add(self.rng.choice(pool))
+                        # 规则4.1 被查者提示（仅本人知，不进公告）
+                        if p.crew_checks.get(tgt, 0) == 0:
+                            t.notices.append("你被船员查验了。")
+                        elif p.crew_checks.get(tgt, 0) == 1:
+                            t.notices.append("你的真实阵营已被船员锁定。")
                         p.crew_checks[tgt] = p.crew_checks.get(tgt, 0) + 1
                         if p.crew_checks[tgt] >= 2:
                             p.known[tgt] = {'camp': t.camp, 'role': t.role}
@@ -853,12 +970,12 @@ class Game:
         # 警察巡逻（全局1次，前3夜）
         for p in self.alive_players():
             if p.role == '警察' and p.alive and not p.dying and not p.police_patrol_used:
-                if p.silent > 0:
-                    continue  # 公测2.0 2.1：沉默者次夜无法执行夜间技能
+                if self._is_silenced(p):
+                    continue  # 规则2.1：沉默者次夜无法执行夜间技能
                 if self.night <= 3 and self._police_will_patrol(p):
                     targets = self.ai_pick_patrol(p)
                     for t in targets:
-                        self.players[t].immune += 1
+                        self.players[t].patrol_stack.append(('patrol', p.id))
                         self._protect_count[t] += 1
                     p.police_patrol_used = True
                     self.announce_msg("有玩家发动了巡逻，%d名玩家获得保护。" % len(targets))
@@ -868,66 +985,70 @@ class Game:
     def step3_bodyguard(self):
         for p in self.alive_players():
             if p.role == '保镖' and p.alive and not p.dying:
-                if p.silent > 0:
-                    continue  # 公测2.0 2.1：沉默者次夜无法执行夜间技能
+                if self._is_silenced(p):
+                    continue  # 规则2.1：沉默者次夜无法执行夜间技能
                 tgt = self.ai_pick_protect(p)
                 if tgt is not None:
-                    self.players[tgt].immune += 1
+                    self.players[tgt].protect_stack.append(('bodyguard', p.id))
                     self._protect_count[tgt] += 1
 
     # ---------- 步骤4a 维修 ----------
+    def _fore_sabotage_tonight(self):
+        """规则3.2：外星人当夜是否执行破坏（行动于步骤0决策，步骤4a可预知）。"""
+        return any((not p.dying) and getattr(p, '_foreigner_action', None) == '破坏'
+                   for p in self.alive_foreigners())
+
     def step4a_repair(self):
-        total_repair = 0.0
+        # 规则3.2：reduction_total = 1.0(自然流逝) + 工程师基础/追加 + 普通船员协助 + 加速工程师
+        reduction = NATURAL_DECAY
+        repair_sum = 0.0          # 维修量【正值】之和（规则3.1表格中的负号表示"倒计时减少"）
         eng_repaired = False
+        fore_sab = self._fore_sabotage_tonight()
         for p in self.alive_players():
             if not p.alive or p.dying:
                 continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
-            amt = 0.0
+            if self._is_silenced(p) or p.suppressed:
+                continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
             if p.role == '工程师':
-                amt = ENGINEER_REPAIR_NIGHT1_2 if self.night <= 2 else ENGINEER_REPAIR_NIGHT3PLUS
                 if self._will_repair(p):
-                    total_repair += amt
+                    amt = ENGINEER_REPAIR_NIGHT1_2 if self.night <= 2 else ENGINEER_REPAIR_NIGHT3PLUS
+                    repair_sum += abs(amt)
                     eng_repaired = True
                     p.repair_count += 1
-                    # 追加维修（公测2.0 3.1：全局共3次，须在基础维修后立即追加，不可单独使用）
-                    # 确定性追加：工程师执行基础维修且全局额度>0 时必定追加
+                    # 追加维修（规则3.1/注释⑯：全局3次，每夜最多1次，须在基础后立即追加）
                     if self.engineer_append_left > 0:
-                        total_repair += ENGINEER_APPEND
+                        repair_sum += abs(ENGINEER_APPEND)
                         self.engineer_append_left -= 1
                         p.append_used = True
-                        p.repair_count += 1
+                        p.repair_count += 1     # 3.3：追加维修计入工程师累计次数
             elif p.role == '加速工程师':
-                amt = ACCEL_ENGINEER_REPAIR
                 if self._will_repair(p):
-                    total_repair += amt
+                    repair_sum += abs(ACCEL_ENGINEER_REPAIR)
                     p.repair_count += 1
             elif p.role == '普通船员':
-                if self._crew_will_repair(p):
-                    # 协助维修（公测2.0 注释⑧修正）：主动选择"协助维修"才贡献，
-                    # 每晚在"协助维修"与"查验"之间二选一（互斥）。X=步骤0.6时存活未转职
-                    # 普通船员总数（含濒死），每名选择维修者均按 -0.20-0.05×(X-1) 贡献（边际递减）。
-                    x = len([q for q in self.alive_players() if q.role == '普通船员'])
-                    amt = -(0.20 + 0.05 * (x - 1))
-                    total_repair += amt
-                    p.repair_count += 1
-                    self.crew_repair_count += 1
+                # 注释⑧：协助维修为自动触发（存活即贡献），与查验不互斥。
+                # X = 步骤0.6时存活未转职普通船员总数（濒死计入），边际递减。
+                x = len([q for q in self.alive_players() if q.role == '普通船员'])
+                repair_sum += (0.20 + 0.05 * (x - 1))
+                p.repair_count += 1
+                self.crew_repair_count += 1
         if eng_repaired:
             self.announce_msg("工程师进行了维修")
-        # 维修暴露标记（公测2.0 3.2：仅向所有异形和外星人公布其编号与具体职业，不公开给人类）
+        # 规则3.3 维修者暴露标记：计数达3次 → 步骤4a结算后立即向所有异形/外星人公布编号+职业
         for p in self.alive_players():
             if p.repair_count >= 3 and p.id not in self.exposed:
                 self.exposed.add(p.id)
                 for q in self.players:
                     if q.alive and (q.is_alien() or q.is_foreigner()):
                         q.known[p.id] = {'camp': 'human', 'role': p.role}
-        # 更新倒计时（外星人破坏加强：倒计时停转一夜，本夜维修不生效）
-        if self.fore_slow_remain > 0:
-            total_repair = 0.0
-        self.countdown += total_repair
-        self.cum_repair += abs(total_repair)
-        self.announce_msg("维修总量 %.2f，当前倒计时 %.2f。" % (total_repair, self.countdown))
+        reduction += repair_sum
+        # 规则3.2/6.5/注释㉒：外星人破坏当夜，所有减少效果（自然流逝+全部维修）被整体锁定归零；
+        # 维修次数照常累计（暴露标记不受影响），破坏增加值仍正常计入。
+        if fore_sab:
+            reduction = 0.0
+        self.countdown -= reduction
+        self.cum_repair += repair_sum
+        self.announce_msg("当夜减少总量 %.2f，当前倒计时 %.2f。" % (reduction, self.countdown))
 
     def _will_repair(self, p):
         if self.strategy == 'random':
@@ -939,41 +1060,13 @@ class Game:
             return True   # 第3夜起每夜维修
         if p.role == '加速工程师':
             return True
-        # 普通船员由 _crew_will_repair 统一决策
-        return self._crew_will_repair(p)
+        # 注释⑧：普通船员协助维修为自动触发（存活即贡献），不走"是否维修"决策
+        return False
 
     def _police_will_patrol(self, p):
         if self.strategy == 'random':
             return self.rng.random() < 0.5
         return True  # 高水平：前期巡逻保护关键角色
-
-    def _crew_will_repair(self, p):
-        if self.strategy == 'random':
-            return self.rng.random() < 0.5
-        # 高水平：普通船员【主动选择协助维修或查验，二选一互斥】（公测2.0 注释⑧修正）
-        # 决策：将普通船员按编号奇偶分成"查验组"和"维修组"，并随夜数轮换，
-        # 避免所有人同时放弃查验导致信息断档，也避免全员维修浪费信息。
-        # 倒计时吃紧(<=12)时整体向维修倾斜（数值抢救）。
-        # 返回 True=本夜选择协助维修（贡献维修值，放弃查验）；False=选择查验。
-        crew_list = [q for q in self.alive_players() if q.role == '普通船员']
-        if not crew_list:
-            return False
-        # 公测2.0 反破坏流：净破坏量连续加速 → 人类集中维修反制（牺牲部分查验/投票效率）
-        if self.sabotage_surge:
-            return self.rng.random() < 0.75
-        # 晚期残局：全力维修抢救
-        if self.countdown <= 10:
-            return self.rng.random() < 0.85
-        # 分组：按存活普通船员在列表中的相对位置，奇偶分组后隔夜轮换
-        crew_list.sort(key=lambda q: q.id)
-        idx = crew_list.index(p)
-        group = idx % 2
-        # 隔夜轮换：奇数夜 group0 维修、group1 查验；偶数夜反之
-        repair_group = (self.night % 2 == 1)
-        if self.countdown <= 14:
-            # 中期：约半数维修、半数查验，但仍轮换保持信息不断档
-            return (idx % 2 == (self.night % 2))
-        return (group == (0 if repair_group else 1))
 
     # ---------- 步骤4b 破坏 ----------
     def step4b_sabotage(self):
@@ -985,8 +1078,8 @@ class Game:
         for p in self.alive_aliens():
             if p.dying:
                 continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
+            if self._is_silenced(p) or p.suppressed:
+                continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
             if getattr(p, '_alien_action', None) == '破坏':
                 val = ALIEN_SABOTAGE_AWAK if p.awak_dir == '破坏' else ALIEN_SABOTAGE_BASE
                 sab += val
@@ -996,48 +1089,66 @@ class Game:
         for p in self.alive_foreigners():
             if p.dying:
                 continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
+            if self._is_silenced(p) or p.suppressed:
+                continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
             if getattr(p, '_foreigner_action', None) == '破坏':
                 sab += FOREIGNER_SABOTAGE
                 fore_sab += 1
                 p.foreigner_sabotage_count += 1
-                # 外星人破坏加强：倒计时停转一个晚上（下一夜自然流逝为0，全局状态）
-                self.fore_slow_remain = 1
+                # 规则6.5：附加效果为【当夜】步骤4a全部减少效果被整体锁定归零（已在步骤4a处理）
         if alien_sab:
             self.announce_msg("异形破坏 %d 次，增量 %.2f。" % (alien_sab, alien_sab * (ALIEN_SABOTAGE_AWAK if any(p.awak_dir=='破坏' for p in self.alive_aliens()) else ALIEN_SABOTAGE_BASE)))
         if fore_sab:
-            self.announce_msg("外星人破坏船体×%d。" % fore_sab)
+            self.announce_msg("外星人破坏船体×%d，当夜维修与自然流逝被锁定。" % fore_sab)
         if sab > 0:
             self.countdown += sab
             self.cum_sabotage += sab
             self.announce_msg("当前倒计时 %.2f。" % self.countdown)
-            # 净破坏量（停摆系统：只累计破坏，维修不能削减毛减量——公测2.0规则确认）
+            # 规则3.2：累计破坏量 = 所有历史破坏增加值总和（不含自然流逝与维修）
             self.net_sabotage = self.cum_sabotage
-            self.announce_msg("净破坏量 %.2f。" % self.net_sabotage)
+            self.announce_msg("累计破坏量 %.2f。" % self.net_sabotage)
             # 触发阈值
             self._check_stall()
 
     def _check_stall(self):
-        for th in STALL_THRESHOLDS:
-            if th not in self.stall_triggered and self.net_sabotage >= th:
-                self.stall_triggered.add(th)
-                bonus = STALL_BONUS[th]
-                if th == 9.0:
-                    self.human_countdown_dead = True
-                    self.announce_msg("【船体停摆】净破坏量突破 %.1f，人类永久失去倒计时胜利条件！" % th)
-                else:
-                    self.countdown += bonus
-                    self.announce_msg("【船体停摆Ⅰ/Ⅱ】净破坏量突破 %.1f，倒计时额外 +%.1f！" % (th, bonus))
-                # 注意：bonus 不计入 cum_sabotage / net_sabotage
+        """规则3.2 阈值检查（严格按官方伪代码）：
+        情况1 累计≥9.0 → 锁定9.0，人类倒计时胜利永久失效；3.0/6.0 增量作废，不追加。
+        情况2 累计≥6.0 → +3.0（若3.0尚未触发则同时补 +1.5 并标记）。
+        情况3 累计≥3.0 → +1.5。
+        仅在未触发9.0时才追加倒计时增量。"""
+        cd = self.net_sabotage
+        if cd >= 9.0 and 9.0 not in self.stall_triggered:
+            self.stall_triggered.add(9.0)
+            self.human_countdown_dead = True
+            self.stall_triggered.add(3.0)   # 增量作废：标记已触发但不追加倒计时
+            self.stall_triggered.add(6.0)
+            self.announce_msg("【船体停摆·9.0】累计破坏 %.2f，人类永久失去倒计时胜利条件！" % cd)
+            return
+        if self.human_countdown_dead:
+            return
+        bonus = 0.0
+        if cd >= 6.0 and 6.0 not in self.stall_triggered:
+            self.stall_triggered.add(6.0)
+            bonus += STALL_BONUS[6.0]
+            if 3.0 not in self.stall_triggered:
+                self.stall_triggered.add(3.0)
+                bonus += STALL_BONUS[3.0]
+            self.countdown += bonus
+            self.announce_msg("【船体停摆·6.0】累计破坏 %.2f，倒计时额外 +%.1f！" % (cd, bonus))
+        elif cd >= 3.0 and 3.0 not in self.stall_triggered:
+            self.stall_triggered.add(3.0)
+            bonus += STALL_BONUS[3.0]
+            self.countdown += bonus
+            self.announce_msg("【船体停摆·3.0】累计破坏 %.2f，倒计时额外 +%.1f！" % (cd, bonus))
+        # 注意：bonus 不计入 cum_sabotage / net_sabotage
 
     # ---------- 步骤5 外星人击杀/双刀 ----------
     def step5_foreigner_kill(self):
         for p in self.alive_foreigners():
             if p.dying:
                 continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
+            if self._is_silenced(p) or p.suppressed:
+                continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
             if getattr(p, '_foreigner_action', None) == '破坏':
                 continue  # 破坏夜不能击杀
             if getattr(p, '_foreigner_action', None) == '查验':
@@ -1046,6 +1157,7 @@ class Game:
             use_double = (getattr(p, '_foreigner_action', None) == '双刀')
             p.double_blade = use_double
             attacks = 2 if use_double else 1
+            blocked_cnt = 0
             if use_double:
                 p._ever_double = True
             for _ in range(attacks):
@@ -1053,14 +1165,18 @@ class Game:
                 if tgt is None:
                     break
                 res = self.apply_harm(tgt, '外星人伤害')
+                if res in ('immune', 'blocked'):
+                    blocked_cnt += 1
                 if res in ('dying', 'dead'):
                     if p.double_blade:
-                        # 沉默：被双刀命中进入濒死者次夜开始沉默（回退：恢复沉默效果，同一玩家全局仅1次）
+                        # 规则6.4/注释⑩：双刀每刀均可施加沉默；
+                        # 被命中进入濒死者（含被救活）自【次夜】起沉默，持续整夜+次日白天。
                         tpl = self.players[tgt]
                         if not getattr(tpl, 'silenced_once', False):
                             tpl.silenced_once = True
-                            tpl.silent = max(tpl.silent, 2)
-            self.announce_msg("外星人攻击 %d 次。" % attacks)
+                            tpl.silence_from = self.night
+            # 规则8：公告攻击次数及抵挡次数
+            self.announce_msg("外星人攻击 %d 次（抵挡 %d 次）。" % (attacks, blocked_cnt))
 
     # ---------- 步骤6 警察/武装船员 ----------
     def step6_guns(self):
@@ -1070,8 +1186,8 @@ class Game:
         for p in self.alive_players():
             if not p.alive or p.dying:
                 continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
+            if self._is_silenced(p) or p.suppressed:
+                continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
             if p.role == '警察' and p.bullets > 0 and not p.police_patrol_used:
                 # 公测2.0 规则修正：巡逻与开枪互斥（同夜二选一）
                 tgt = self.ai_pick_shoot(p)
@@ -1086,7 +1202,7 @@ class Game:
                 if getattr(p, '_armed_protect', False):
                     tgt = self.ai_pick_protect(p)
                     if tgt is not None:
-                        self.players[tgt].immune += 1
+                        self.players[tgt].protect_stack.append(('armed', p.id))
                         self._protect_count[tgt] += 1
                 else:
                     tgt = self.ai_pick_shoot(p)
@@ -1107,8 +1223,8 @@ class Game:
         for p in self.alive_aliens():
             if p.dying:
                 continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
+            if self._is_silenced(p) or p.suppressed:
+                continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
             if getattr(p, '_transformed_this_night', False):
                 p._transformed_this_night = False
                 continue  # 转化当夜无行动
@@ -1145,66 +1261,102 @@ class Game:
                         y += 1
                         # 异形反制学习：该目标有常驻保护/免疫，记录后避开（后续优先刀无保护目标）
                         p.blocked_targets.add(tgt)
-                    # 人类威胁感知：被袭目标记录（供保镖/警察动态保护）
-                    for q in self.alive_humans():
-                        if q.alive and not q.dying:
-                            q.attacked_history[tgt] += 1
+                    # 规则8：异形行动公告仅公开"行动X次、抵挡Y次"，隐藏执行者/目标/类型。
+                    # 因此只有【造成濒死/死亡】（可观测结果）时，全体人类才可知谁被袭击。
+                    if r in ('dying', 'dead'):
+                        for q in self.alive_humans():
+                            if q.alive and not q.dying:
+                                q.attacked_history[tgt] += 1
         if x:
             self.announce_msg("异形行动%d次（抵挡%d次）。" % (x, y))
 
     # ---------- 步骤8 医生 ----------
     def step8_doctors(self):
-        # 外星人感染自我治疗（6.8修正）：先于医生行动。
-        # 仅当外星人【未濒死】且未被直接死亡时触发；每夜最多1次；不受抑制影响。
-        # 濒死状态下除医生自救外所有技能（含被动）全部失效（2.1节总则）。
-        for p in self.alive_foreigners():
-            if p.alive and not p.dying and p.infection >= 1 and p.self_treat > 0:
-                p.infection = 0
-                p.infection_death_night = None
-                p.self_treat -= 1
-        for p in self.alive_players():
-            if not p.alive:
-                continue
-            if p.silent > 0 or p.suppressed:
-                continue  # 公测2.0 2.1/0.5：沉默/感染抑制者无法执行夜间技能
-            if p.role in ('生化医师', '救援医师', '临时医生'):
-                # 2.1总则：濒死状态下除医生自救外所有技能失效。
-                # 濒死医生仍可进入 _doctor_act，但只能执行自救（救援自己）。
-                self._doctor_act(p)
+        # 【外星人加强】外星人免疫感染 → 规则6.8「感染自我治疗」整体作废（步骤8①不再执行）
+        # ②③ 医生按职业顺序结算：生化专职医师 → 救援专职医师 → 临时医生（转职）
+        act = Counter()
+        for role in ('生化医师', '救援医师', '临时医生'):
+            for p in self.alive_players():
+                if not p.alive or p.role != role:
+                    continue
+                if self._is_silenced(p) or p.suppressed:
+                    continue  # 规则2.1/0.5：沉默/感染抑制者无法执行夜间技能
+                r = self._doctor_act(p)
+                if r:
+                    act[r] += 1
+        # 规则8：公告医生各职业行动次数（隐藏执行者与目标）
+        parts = []
+        for role in ('生化医师', '救援医师', '临时医生'):
+            n = act.get(role + '救援', 0) + act.get(role + '治疗', 0)
+            if n:
+                parts.append("%s%d次" % (role, n))
+        if parts:
+            self.announce_msg("医生行动：%s。" % "、".join(parts))
 
     def _doctor_act(self, p):
-        # 2.1总则：濒死状态下除医生自救外所有技能失效。
-        # 濒死医生只能自救（任何医生皆可自救，符合4.4"自身濒死时仍可使用自救"）。
+        """规则4.4：每夜【救援】与【感染治疗】二选一；自身濒死时可自救（消耗1次万能救援额度）。
+        返回动作标签供步骤8公告；同时实现规则3.4感染反馈与规则4.4"医生向目标暴露身份"。"""
         if p.dying:
+            # 注释㉑/边界④：自救消耗万能救援额度，额度耗尽则无法自救
+            if p.doctor_rescue <= 0:
+                return None
+            p.doctor_rescue -= 1
             p.dying = False
-            if p.doctor_rescue > 0:
-                p.doctor_rescue -= 1
+            p.death_cause = None
             if p.infection > 0:
+                self._notify_infection_cleared(p)   # 规则3.4：施加者收到提示
                 p.infection = 0
-            return
-        # 非濒死：优先救濒死者（救援），否则治疗感染
+                p.infection_death_night = None
+            return p.role + '救援'
+        # 救援濒死者（生化医师仅自救 → 不参与他人救援）
         dying_targets = [q for q in self.alive_players() if q.dying]
         if dying_targets and p.doctor_rescue > 0:
-            # 生化仅自救（4.4注释㉑：仅限自身濒死时使用，不可预防性使用）——
-            # 非濒死生化医师不救援他人；救援医师可救任意。
-            if p.role == '救援医师' or p.role == '临时医生':
+            if p.role in ('救援医师', '临时医生'):
                 tgt = self.ai_pick_rescue(p, dying_targets)
-                if tgt is not None and p.doctor_rescue > 0:
-                    self.players[tgt].dying = False
+                if tgt is not None:
+                    t = self.players[tgt]
+                    t.dying = False
+                    t.death_cause = None
                     p.doctor_rescue -= 1
-                    if self.players[tgt].infection > 0 and p.role == '生化医师':
-                        self.players[tgt].infection = 0
-                        self.players[tgt].has_antibody = True  # 生化医师救援清除感染并赋予抗体
-            return
-        # 治疗感染
+                    self._doctor_reveal(p, t)        # 规则4.4：向目标暴露身份
+                    return p.role + '救援'
+            return None
+        # 感染治疗（清除1层）
         inf_targets = [q for q in self.alive_players() if q.infection >= 1]
         if inf_targets and p.doctor_treat > 0:
             tgt = self.ai_pick_infect_treat(p, inf_targets)
-            if tgt is not None and p.doctor_treat > 0:
-                self.players[tgt].infection = 0
+            if tgt is not None:
+                t = self.players[tgt]
+                # 注释⑲：生化医师自身免疫感染，治疗自身无效果
+                if t.id == p.id and p.role == '生化医师':
+                    return None
+                if t.infection == 0 or t.has_antibody:
+                    return None
+                t.infection = 0
+                t.infection_death_night = None
                 p.doctor_treat -= 1
+                self._doctor_reveal(p, t)            # 规则4.4：向目标暴露身份
+                self._notify_infection_cleared(t)    # 规则3.4：施加者收到提示
                 if p.role == '生化医师':
-                    self.players[tgt].has_antibody = True  # 生化医师治疗清除感染并赋予抗体
+                    t.has_antibody = True      # 抗体：下一夜免疫，不跨夜
+                    t._antibody_night = self.night
+                return p.role + '治疗'
+        return None
+
+    def _doctor_reveal(self, p, t):
+        """规则4.4：医生可主动向目标暴露身份（目标获知施救者职业）。
+        对自身（自救/自疗）无意义，跳过。"""
+        if t.id == p.id:
+            return
+        if p.id not in t.known:
+            t.known[p.id] = {'camp': 'human', 'role': p.role}
+
+    def _notify_infection_cleared(self, t):
+        """规则3.4：感染被清除/抑制时，施加者收到提示（不透露患者/医生/抑制者编号）。"""
+        if t.infection_src is not None:
+            src = self.players[t.infection_src]
+            if src.alive:
+                src.notices.append("你的感染被清除了。")
 
     # ---------- 步骤9 死亡结算 ----------
     def step9_death_resolution(self):
@@ -1240,8 +1392,8 @@ class Game:
             return
         if len(self.alive_players()) >= 5:
             for p in self.alive_players():
-                # 注释㉓：全场存活≥5且验票官存活（未濒死——濒死时除医生自救外技能全部失效，2.1总则）时可发动
-                if p.role == '验票官' and p.alive and not p.dying and not p.emergency_used:
+                # 边界⑤：验票官"自身存活"含濒死状态
+                if p.role == '验票官' and p.alive and not p.emergency_used:
                     if self.strategy == 'random':
                         do = self.rng.random() < 0.2
                     else:
@@ -1272,21 +1424,24 @@ class Game:
                         self.check_win('emergency')
                         if self.over:
                             return
-                        self._emergency_triggered = True  # 公测2.0 2.2：紧急会议跳过步骤11
+                        # 注释⑬：紧急会议若未触发胜利，照常执行步骤11
                         break
 
     # ---------- 步骤11 最终倒计时 ----------
     def step11_countdown(self):
         if self.over:
             return
-        if len(self.alive_humans()) > 0:
-            if self.countdown <= 0:
-                if self.human_countdown_dead:
-                    self.announce_msg("倒计时归零，但人类倒计时胜利已永久失效。")
-                else:
-                    self._end('human', '倒计时胜利', 'step11')
-            else:
-                self.announce_msg("倒计时 %.2f，进入白天。" % self.countdown)
+        # 规则8：船体失效公告（9.0 触发后的首次步骤11 公告一次）
+        if self.human_countdown_dead and not getattr(self, '_cd_dead_announced', False):
+            self._cd_dead_announced = True
+            self.announce_msg("【船体失效】倒计时胜利永久失效，人类只能靠清场取胜。")
+        # 规则步骤11：仅当仍有人类存活（含濒死）且未触发9.0失效时执行
+        if len(self.alive_humans()) == 0 or self.human_countdown_dead:
+            return
+        if self.countdown <= 0:
+            self._end('human', '倒计时胜利', 'step11')
+        else:
+            self.announce_msg("倒计时 %.2f，进入白天。" % self.countdown)
 
     # ===================== 白天：讨论 + 投票 =====================
     def run_daytime(self, emergency=False):
@@ -1327,9 +1482,9 @@ class Game:
         # 3级：普通船员累计2次查验锁定
         if p.role == '普通船员' and p.crew_checks.get(tgt, 0) >= 2:
             grade = max(grade, 3)
-        # 1级：维修暴露（公开可验证的行为异常）
-        if tgt in self.exposed:
-            grade = max(grade, 1)
+        # ⚠ 规则合规：维修暴露（规则3.3）仅向【异形与外星人】公布，人类不可见。
+        # 异形/外星人的指控已在函数开头按"虚假指控"返回0级，故此处不得再用 exposed 给人类指控加级。
+        # 1级：目标被频繁私聊（配对公告公开 → 全体可见的行为特征）
         # 1级：目标被频繁私聊（信息富集=行为特征）
         if len(self.players[tgt].chat_partners) >= 2:
             grade = max(grade, 1)
@@ -1417,10 +1572,9 @@ class Game:
         votes = defaultdict(int)
         voters = {}
         for p in self.alive_players():
-            if p.dying:
-                continue  # 濒死可发言但投票？规则未明；此处允许投票
-            if p.silent > 0:
-                voters[p.id] = None  # 公测2.0 2.1：沉默者次日白天投票强制弃权
+            # 注释④：濒死者白天投票权不受影响（仅夜间技能失效）
+            if self._is_silenced_day(p):
+                voters[p.id] = None  # 规则2.1：沉默者次日白天投票强制弃权
                 continue
             b = self.belief[p.id]
             mates = getattr(p, 'teammates', [])
@@ -1450,57 +1604,55 @@ class Game:
             votes[tgt] += 1
             voters[p.id] = tgt
         self.last_votes = voters
-        # 取最高票
+        # 注释③：得票最高者被放逐；平票（多人并列最高）则无人被放逐，直接进入夜晚。
+        # 不存在"二次投票"或"随机"机制。
         if votes:
             maxv = max(votes.values())
             top = [t for t, v in votes.items() if v == maxv]
-            ejected = self.rng.choice(top)
-            self.last_ejected = ejected
-            self.players[ejected].alive = False
-            self.players[ejected].dying = False
-            self.announce_msg("白天投票：%d号 被驱逐（得票%d）。" % (ejected, maxv))
-            # 公开被驱逐者阵营与职业（用于追责与推理，"显示被投者真实身份"）
-            ejp = self.players[ejected]
-            self.announce_msg("驱逐结果：%d号 是 %s（职业：%s）。" % (
-                ejected, self._camp_cn(ejp.camp), self.players[ejected].role))
-            self.ejection_log.append((self.night, ejected, ejp.camp, self.players[ejected].role))
-            # 公测2.0：记录公开暴露的异形数（供劣势局面评估用）
-            if ejp.camp == 'alien':
-                self.alien_public_exposed_count = getattr(self, 'alien_public_exposed_count', 0) + 1
-            # 更新信念：被驱逐者若是异形/外星人 -> 信任其指控对象降低；若是人类 -> 指控者可疑
-            ej = self.players[ejected]
-            for pid, b in self.belief.items():
-                if ej.is_alien() or ej.is_foreigner():
+            if len(top) > 1:
+                self.last_ejected = None
+                self.announce_msg("白天投票平票（%d人并列 %d 票），无人被放逐。" % (len(top), maxv))
+            else:
+                ejected = top[0]
+                self.last_ejected = ejected
+                ejp = self.players[ejected]
+                self.add_death(ejp, '白天放逐')   # 规则1.5：与夜间死亡公告分别执行
+                self.announce_msg("白天投票：%d号 被放逐（得票%d）。" % (ejected, maxv))
+                # 1.5 放逐揭示：人类公告职业；异形/外星人公告阵营
+                self.announce_msg("放逐结果：%d号 是 %s（职业：%s）。" % (
+                    ejected, self._camp_cn(ejp.camp), ejp.role))
+                self.ejection_log.append((self.night, ejected, ejp.camp, ejp.role))
+                if ejp.camp == 'alien':
+                    self.alien_public_exposed_count = getattr(self, 'alien_public_exposed_count', 0) + 1
+                # 更新信念：被放逐者若是异形/外星人 → 其指控对象更可能是好人
+                for pid, b in self.belief.items():
                     b['suspicion'][ejected] = 0.0
-                    # 异形被驱逐 -> 其指控过的人更可能是好人
-                    for (sp, tg) in b['accuse_log']:
-                        if sp == ejected:
-                            b['suspicion'][tg] = max(0.0, b['suspicion'][tg] - 0.1)
-                else:
-                    b['suspicion'][ejected] = 0.0
+                    if ejp.is_alien() or ejp.is_foreigner():
+                        for (sp, tg) in b['accuse_log']:
+                            if sp == ejected:
+                                b['suspicion'][tg] = max(0.0, b['suspicion'][tg] - 0.1)
         else:
             self.last_ejected = None
-            self.announce_msg("白天无人被驱逐。")
+            self.announce_msg("白天无人被放逐。")
 
     def _accountability(self):
-        """追责机制：若被驱逐者是好人(人类)，则主导/跟随错误指控的玩家被标记。
-        高水平：故意让异形引导错误方向 -> 触发追责反向追踪异形。"""
+        """规则4.7：票型【仅验票官本人可见】→ 只有验票官能执行"追责"推理。
+        其余玩家只能看到被放逐者的公开身份（规则1.5），无法知道谁投了谁。
+        （此前让全体玩家追责，属"票型公开"的超额实现，已修正。）"""
         ej = self.last_ejected
         if ej is None:
             return
         ejp = self.players[ej]
-        if ejp.is_human():
-            # 错误指控：投票给该好人的玩家被追责标记
+        if not ejp.is_human():
+            return
+        inspectors = [p for p in self.players
+                      if p.original_role == '验票官' and p.alive]
+        for ins in inspectors:
             for voter, tgt in self.last_votes.items():
-                if tgt == ej:
-                    self.belief[voter]['accountable'] += 1
-                    # 提高其被怀疑度（追责反噬）
-                    for other, b in self.belief.items():
-                        if other != voter:
-                            b['suspicion'][voter] = min(1.0, b['suspicion'][voter] + 0.15)
-            # 额外：发言主导者（多次指控该好人）更高嫌疑
-            for (sp, tg) in list(self.belief[ej]['accuse_log']):
-                pass
+                if tgt == ej and voter != ins.id:
+                    self.belief[ins.id]['accountable'] += 1
+                    self.belief[ins.id]['suspicion'][voter] = min(
+                        1.0, self.belief[ins.id]['suspicion'][voter] + 0.15)
 
     def _eval_info_metrics(self):
         """公测2.0 信息密度量化（纯统计打标，不改博弈逻辑）：
@@ -1686,8 +1838,8 @@ class Game:
             b = self.belief[p.id]
             mates = getattr(p, 'teammates', [])
             for tid, v in p.known.items():
-                if tid in mates:
-                    continue  # 异形已知队友，不怀疑
+                if tid == p.id or tid in mates:
+                    continue  # 不怀疑自己 / 异形已知队友
                 if self.players[tid].alive:
                     if v.get('camp') == 'alien':
                         b['suspicion'][tid] = 0.95
@@ -1695,6 +1847,9 @@ class Game:
                         b['suspicion'][tid] = 0.9
                     elif v.get('camp') == 'human':
                         b['suspicion'][tid] = max(0.02, b['suspicion'][tid] - 0.1)
+                    elif v.get('camp') == 'nonhuman':
+                        # 规则4.1：普通船员首查获知"该玩家不是人类"（强疑点，未区分异形/外星人）
+                        b['suspicion'][tid] = max(b['suspicion'][tid], 0.8)
 
     # 通用目标选择（仅用公开信息 + 自身已知）
     def ai_pick_check_target(self, p):
@@ -1777,6 +1932,8 @@ class Game:
                 s += 3.0
             # 历史受袭：异形曾刀过该目标 → 说明被盯上，保护价值高
             s += min(2.0, p.attacked_history.get(q.id, 0))
+            # 规则4.6：本人曾为其抵挡过袭击 → 异形仍可能继续刀该目标，持续保护
+            s += min(2.0, p.protected_hits.get(q.id, 0))
             # 被异形私聊渗透（配对频繁）→ 可能被套话定位
             s += min(1.0, len(q.chat_partners) * 0.2)
             return s
@@ -1836,8 +1993,8 @@ class Game:
             # 公开跳身份/被公开指认为关键角色者（如神探跳身份）
             if q.id in getattr(self, 'revealed_humans', set()):
                 score += 3
-            # 多次被保护（推断高价值）
-            score += min(3, self._protect_count.get(q.id, 0))
+            # ⚠ 规则合规：保镖保护【不公告】、警察巡逻仅公告人数（规则8），
+            # 被保护对象对异形/外星人不可见，故不得使用 _protect_count 推断高价值目标。
             # 异形反制学习：该目标曾抵挡我的刀（有常驻保护），大幅降权，转向无保护目标
             if p.is_alien() and q.id in p.blocked_targets:
                 score -= 6
@@ -1859,8 +2016,10 @@ class Game:
 
     def ai_pick_infect(self, p):
         """异形感染目标（非异形存活者，未濒死/未感染）。
-        ⚠ 信息隔离修复：不预知角色，也不精准识别外星人——候选为"所有非异形存活玩家"，
-        异形不知道谁是人类谁是外星人，外星人只是自然在候选池中可能被选中。"""
+        ⚠ 信息隔离：不预知角色，也不精准识别外星人——候选为"所有非异形存活玩家"，
+        异形不知道谁是人类谁是外星人，外星人只是自然在候选池中可能被选中。
+        【外星人加强】外星人免疫感染：仍保留在候选池中（否则等于告诉异形"这人不是人类"），
+        但被指定时不生效 —— 异形会白白浪费一个感染名额。"""
         cands = [q for q in self.alive_players() if not q.is_alien() and not q.dying
                  and q.infection == 0 and q.id != p.id]
         if not cands:
@@ -1868,15 +2027,14 @@ class Game:
         if self.strategy == 'random':
             n = self.rng.randint(1, 2)
             return [q.id for q in self.rng.sample(cands, min(n, len(cands)))]
-        # 高水平：感染节奏武器——优先感染公开暴露/被保护的高价值目标，制造"救援濒死 vs 治疗感染"的医生两难。
-        # ⚠ 信息隔离修复：异形不得读取他人真实 role / 阵营。只依据公开信号——
-        # 公开暴露(revealed_humans/exposed，异形可见) + 被保护次数(_protect_count)。
-        # 未知目标按随机/普通处理（不预知谁强、谁强，也不精准锁外星人——只能在候选随机中可能命中）。
+        # 高水平：感染节奏武器——优先感染公开暴露的高价值目标，制造"救援濒死 vs 治疗感染"的医生两难。
+        # ⚠ 规则合规：异形不得读取他人真实 role / 阵营，也不得使用 _protect_count
+        #（保镖保护不公告、巡逻仅公告人数 → 被保护对象不可见）。
+        # 只依据公开信号：跳身份(revealed_humans) + 维修暴露(exposed，规则3.3 异形可见)。
         def inf_score(q):
             s = 0.0
             if q.id in getattr(self, 'revealed_humans', set()) or q.id in self.exposed:
                 s += 2.0   # 公开暴露目标（跳身份/维修暴露，异形可知）
-            s += self._protect_count.get(q.id, 0) * 0.5  # 被保护的高价值
             return s
         cands.sort(key=inf_score, reverse=True)
         # 公测2.0 5.4：异形感染自选目标；基础1~2名，感染觉醒后2~3名（数量只由觉醒状态决定）
@@ -1930,7 +2088,8 @@ class Game:
                 # 高水平异形会轮换——已破坏>=2次的异形本夜不再破坏（除非已暴露/临危），
                 # 让其他异形分担破坏，避免单只过快暴露。
                 EXPOSE_LIMIT = 3
-                over_exposed = p.alien_sabotage_count >= (EXPOSE_LIMIT - 1) and p.id not in self.exposed
+                over_exposed = (p.alien_sabotage_count >= (EXPOSE_LIMIT - 1)
+                                and p.id not in self.alien_sabotage_exposed)
                 # 公测2.0 动态破坏触发：异形劣势局面 → 切破坏优先（赌停摆锁死人类倒计时，拖入残局）。
                 # 触发条件：本夜处于劣势局面 + 净破坏未到上限 + 该异形尚未因破坏暴露（或已暴露无顾虑）。
                 disadv = self._alien_disadvantaged()
@@ -1980,8 +2139,11 @@ class Game:
                         p._alien_action = '感染'
                     else:
                         p._alien_action = '结茧'  # 自保/蓄力
-                # 结茧：若自己高威胁且濒危
-                if p.id in self.exposed and self.rng.random() < 0.3:
+                # 结茧：身份已因破坏暴露 → 自保（规则5.4：护盾跨夜保留，已有护盾再结茧无效）
+                if p.id in self.alien_sabotage_exposed and self.rng.random() < 0.3:
+                    p._alien_action = '结茧'
+                # 规则4.1/4.5：收到"真实阵营已被船员锁定"提示 → 暴露在即，优先结茧自保
+                if any('已被船员锁定' in n for n in p.notices) and self.rng.random() < 0.45:
                     p._alien_action = '结茧'
                 # 公测2.0 子场景统计：记录劣势/优势局面下的行动选择分布
                 if disadv:
@@ -2035,6 +2197,8 @@ class Game:
                 if self.rng.random() < awaken_p:
                     p.fore_double_awakened = True
                     p._foreigner_action = '双刀'   # 觉醒当夜即用双刀
+                    # 规则6.4：公告"外星人要开始行动了"，不暴露身份
+                    self._pending_announce.append("外星人要开始行动了。")
                 else:
                     # 未觉醒成功：行动中优先出刀
                     self._foreigner_plan_normal(p)
@@ -2356,10 +2520,13 @@ def write_report(stats, strategy_name, path, compare=None):
     L = []
     L.append("# 太空杀 公测2.0 自动化模拟报告 — %s" % strategy_name)
     L.append("")
-    L.append("模拟局数：**%d** 局  | 规则版本：公测2.0（裁判确定性结算）｜ 停摆阈值 3.0/6.0/9.0" % n)
-    L.append("说明：觉醒方向额度采用【永久占位制】（不随死亡/转化释放，转化仅占用目标方向额度）；")
-    L.append("公测2.0 关键机制：人类反破坏流（净破坏加速→集中维修）+ 统计口径修复（end_reason 带阵营前缀，两表可对账）。")
-    L.append("异形动态破坏触发经 A/B 实测为净负面（异形-2.8pp、外星人+4.9pp），默认关闭，异形维持静态感染→击杀流（方案B）。")
+    L.append("模拟局数：**%d** 局 ｜ 规则依据：**公测2.0 规则文本 v1.2（正式发布版）** ｜ 停摆阈值 3.0/6.0/9.0" % n)
+    L.append("裁判口径：严格按 0→0.5→0.6→1→2→3→4a→4b→5→6→7→8→9→10→11 顺序结算；")
+    L.append("免疫按【保护 → 巡逻 → 被动 → 护盾】优先级分层、同类后进先出栈式消耗；")
+    L.append("自然流逝 -1.0 与全部维修在步骤4a统一计入当夜减少总量，外星人破坏当夜整体锁定归零；")
+    L.append("觉醒与转化不得同夜执行、转化次夜生效；普通船员协助维修自动触发（与查验不互斥）；")
+    L.append("白天平票 → 无人放逐；濒死者保留投票权；沉默自次夜起生效。")
+    L.append("工程兜底：40 夜仍未分胜负 → 强制判平（规则文本未定义终局上限，属防死循环保护）。")
     L.append("")
     # ① 总体
     L.append("## ① 总体结果")
@@ -2942,7 +3109,7 @@ def write_report_html(stats, strategy_name, path, compare=None):
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>太空杀 v14.5 模拟报告 — @@TITLE@@</title>
+<title>太空杀 公测2.0 模拟报告 — @@TITLE@@</title>
 <style>
 * { box-sizing: border-box; }
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin:0; background:#f5f6f8; color:#222; }
@@ -2979,7 +3146,7 @@ footer { text-align:center; color:#90a4ae; font-size:12px; padding:20px; }
 </style></head>
 <body>
 <header><h1>太空杀 公测2.0 自动化模拟报告 — @@TITLE@@</h1>
-<p>模拟局数：@@N@@ 局 ｜ 规则版本：公测2.0（裁判确定性结算）｜ 觉醒方向额度采用永久占位制（转化不释放）｜ 停摆阈值 3.0/6.0/9.0｜ 反破坏流（动态破坏触发默认关闭）</p></header>
+<p>模拟局数：@@N@@ 局 ｜ 规则依据：公测2.0 规则文本 v1.2 ｜ 免疫优先级：保护→巡逻→被动→护盾 ｜ 自然流逝与维修在步骤4a统一计入（外星人破坏当夜锁定归零）｜ 停摆阈值 3.0/6.0/9.0</p></header>
 <div class="wrap"><nav><ul>@@TOC@@</ul></nav><main>@@BODY@@</main></div>
 <footer>由蒙特卡洛模拟引擎自动生成 · 不完全信息三方动态博弈</footer>
 </body></html>"""
@@ -2987,30 +3154,44 @@ footer { text-align:center; color:#90a4ae; font-size:12px; padding:20px; }
 
 # ============================ 主入口 ============================
 if __name__ == '__main__':
+    import argparse
+    import os
     import time
+
+    # 报告输出到【代码所在目录】，不再硬编码到其他工作区
+    OUT_DIR = os.path.dirname(os.path.abspath(__file__))
+    ap = argparse.ArgumentParser(description="太空杀 公测2.0 自动化模拟（规则文本 v1.2）")
+    ap.add_argument('--n', type=int, default=1000, help="每组模拟局数（默认 1000）")
+    ap.add_argument('--seed', type=int, default=20260821, help="随机种子")
+    ap.add_argument('--baseline', action='store_true', help="同时运行随机基线组用于对照")
+    args = ap.parse_args()
+
     t0 = time.time()
-    N = 5000  # 公测2.0 高水平报告：5000局
-    print("运行 %d 局高水平模拟 (公测2.0)..." % N)
-    stats_high = run_simulation(N, 'high', seed=20260821)
-    report_path = "c:/Users/ASUS/CodeBuddy/20260825021057/太空杀_公测2.0_高水平报告_激进出刀.md"
+    N = args.n
+    title = "高水平玩家（公测2.0 规则文本 v1.2）"
+    print("运行 %d 局高水平模拟（公测2.0 规则文本 v1.2）..." % N)
+    stats_high = run_simulation(N, 'high', seed=args.seed)
 
-    # 随机基线（用于数值vs推理平衡对照）
-    print("运行 %d 局随机基线..." % N)
-    stats_rand = run_simulation(N, 'random', seed=99)
-    report_path2 = "c:/Users/ASUS/CodeBuddy/20260825021057/太空杀_公测2.0_随机基线报告.md"
-    write_report(stats_rand, "随机基线玩家", report_path2)
-    print("随机基线报告：", report_path2)
+    stats_rand = None
+    if args.baseline:
+        print("运行 %d 局随机基线..." % N)
+        stats_rand = run_simulation(N, 'random', seed=args.seed + 1)
+        report_path2 = os.path.join(OUT_DIR, "太空杀_公测2.0_随机基线报告.md")
+        write_report(stats_rand, "随机基线玩家", report_path2)
+        print("随机基线报告：", report_path2)
 
-    # 高水平报告（附带与随机基线的对比）
-    write_report(stats_high, "高水平玩家（外星人激进出刀·第七夜觉醒双刀）", report_path, compare=stats_rand)
+    report_path = os.path.join(OUT_DIR, "太空杀_公测2.0_高水平报告.md")
+    write_report(stats_high, title, report_path, compare=stats_rand)
     print("报告已生成：", report_path)
 
-    # HTML 报告（提示词重要指标可视化）
-    html_path = "c:/Users/ASUS/CodeBuddy/20260825021057/太空杀_公测2.0_高水平报告_激进出刀.html"
-    write_report_html(stats_high, "高水平玩家（外星人激进出刀·第七夜觉醒双刀）", html_path, compare=stats_rand)
+    html_path = os.path.join(OUT_DIR, "太空杀_公测2.0_高水平报告.html")
+    write_report_html(stats_high, title, html_path, compare=stats_rand)
     print("HTML 报告：", html_path)
     print("耗时 %.1fs" % (time.time() - t0))
-    print("高水平：人类 %.1f%% 异形 %.1f%% 外星人 %.1f%%" % (
-        100*stats_high.wins['human']/N, 100*stats_high.wins['alien']/N, 100*stats_high.wins['foreigner']/N))
-    print("随机：人类 %.1f%% 异形 %.1f%% 外星人 %.1f%%" % (
-        100*stats_rand.wins['human']/N, 100*stats_rand.wins['alien']/N, 100*stats_rand.wins['foreigner']/N))
+    print("高水平：人类 %.1f%% 异形 %.1f%% 外星人 %.1f%% 平局 %.1f%%" % (
+        100*stats_high.wins['human']/N, 100*stats_high.wins['alien']/N,
+        100*stats_high.wins['foreigner']/N, 100*stats_high.wins.get('draw', 0)/N))
+    if stats_rand is not None:
+        print("随机：人类 %.1f%% 异形 %.1f%% 外星人 %.1f%% 平局 %.1f%%" % (
+            100*stats_rand.wins['human']/N, 100*stats_rand.wins['alien']/N,
+            100*stats_rand.wins['foreigner']/N, 100*stats_rand.wins.get('draw', 0)/N))
