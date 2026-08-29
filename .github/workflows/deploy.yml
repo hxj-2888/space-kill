@@ -35,7 +35,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install python-docx (版本锁定，防上游大版本破坏构建)
-        run: pip install python-docx==1.2.0
+        run: pip install "python-docx==1.2.0"
 
       - name: Rebuild site from docx
         run: python3 tools/build_site.py
