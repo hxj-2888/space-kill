@@ -1,1 +1,4 @@
 __pycache__/
+
+# Cloudflare local state (account email/id)
+.wrangler/
