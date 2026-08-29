@@ -1,0 +1,89 @@
+{
+  "version": "公测3.1 认知模型（信息集最优+情绪+追责）",
+  "engine": "公测3.0 裁判（规则零改动，机制核验 18/18）",
+  "rules": "公测3.0 规则.md（R1~R11）",
+  "n_games": 5000,
+  "seed": 20260829,
+  "skill_dist": {
+    "expert": 0.2,
+    "mid": 0.55,
+    "novice": 0.25
+  },
+  "noise_model": {
+    "expert": {
+      "base": 0.1,
+      "tau": 6.0,
+      "floor": 0.02
+    },
+    "mid": {
+      "base": 0.3,
+      "tau": 8.0,
+      "floor": 0.1
+    },
+    "novice": {
+      "base": 0.5,
+      "tau": 10.0,
+      "floor": 0.28
+    }
+  },
+  "lr_table": {
+    "accused_by_trusted": 5.0,
+    "accused_ordinary": 1.12,
+    "accused_by_liar": 0.6,
+    "voted_wrong": 1.35,
+    "chatted_with": 0.92,
+    "guilt_by_association": 1.3
+  },
+  "emotion": "fear/anger/panic/confidence + 个体trust；事件驱动（被投票/朋友死亡/倒计时/背叛/自证成功）",
+  "reputation": "lie_count/votes_against_me/trust_score；局内累计、每局重置；说谎前科→可信度0.5^n",
+  "isolation": {
+    "decision_layer": "自由函数 decide_*，只接收 Observation/Memory/rng/skill",
+    "private_chat": "私聊内容仅写入双方 Memory，非参与者不可见",
+    "removed_illegal_channels": [
+      "_protect_count",
+      "attacked_history→保护方",
+      "exposed→人类观测"
+    ],
+    "perspective_detection": "身份类决策 acc vs 后验置信，z>2 且差>5pp 判违规",
+    "focus_fire": "异形协调行动：同夜不重复指定目标；第5夜起可自由选择补刀（濒死再受击直接死亡）"
+  },
+  "infogame": {
+    "promise_by_skill": {
+      "expert|False": 22007,
+      "expert|True": 10613,
+      "mid|False": 61962,
+      "mid|True": 29334,
+      "novice|False": 28803,
+      "novice|True": 13209
+    },
+    "challenges": 48961,
+    "challenge_hit_rate": 28.2,
+    "citations": 27393
+  },
+  "results_summary": {
+    "win_rates_ci": {
+      "human": [
+        47.28,
+        45.9,
+        48.64
+      ],
+      "alien": [
+        28.12,
+        26.88,
+        29.4
+      ],
+      "foreigner": [
+        24.58,
+        23.36,
+        25.82
+      ],
+      "draw": [
+        0.02,
+        0.0,
+        0.06
+      ]
+    },
+    "perspective_violations": 0,
+    "chat_effective_rate": 58.8
+  }
+}
