@@ -30,6 +30,15 @@ DOCS = [
      '星途归航 · 异形胜利线', '剧情', 'docx'),
 ]
 
+# 平衡性模拟成果（公测3.1 最新策略层升级）——最新版官网展示，取缔旧版模拟文档
+SIM31 = [
+    # (来源路径, 输出文件名, 短标题, 副标题)
+    (os.path.join('公测3.1', 'sim_output', '策略矩阵报告.md'), 'sim31-matrix.html',
+     '策略矩阵报告', '18 组合 × 2000 局 · 异形三流派与均衡解'),
+    (os.path.join('公测3.1', 'sim_output', '异形流派核验.md'), 'sim31-flows.html',
+     '异形流派核验', '击杀 / 破坏 / 感染 · 12/12 行为判据'),
+]
+
 RE_CHAPTER = re.compile(r'^第[0-9一二三四五六七八九十百零两]+[章节篇部回]')
 RE_SUB = re.compile(r'^\d+\.\d+[^0-9]')
 RE_SECTION = re.compile(r'^[一二三四五六七八九十]+、')
@@ -93,6 +102,10 @@ nav a.tab {{ color:var(--muted); text-decoration:none; font-size:14px; padding:5
 nav a.tab:hover {{ color:#fff }}
 nav a.tab.on {{ color:#fff; background:var(--line) }}
 .wrap {{ max-width:52rem; margin:0 auto; padding:48px 22px 96px }}
+.filebox {{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 18px; margin:10px 0; text-decoration:none; color:var(--text); display:block }}
+.filebox:hover {{ border-color:var(--accent) }}
+.filebox .t {{ font-weight:700; color:#fff }}
+.filebox .s {{ color:var(--muted); font-size:13px; margin-top:3px }}
 .kicker {{ font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin-bottom:10px }}
 h1 {{ font-size:clamp(26px,4.6vw,38px); letter-spacing:-.02em; margin-bottom:28px; color:#fff }}
 h2 {{ font-size:20px; color:#fff; margin:44px 0 14px; padding-left:12px; border-left:3px solid var(--accent) }}
@@ -116,6 +129,7 @@ pre {{ background:#12121e; border:1px solid var(--line); border-radius:10px; pad
   <a class="brand" href="index.html">🚀 太空杀 · 星途归航</a>
   <a class="tab{on_story}" href="story-human.html">剧情</a>
   <a class="tab{on_rules}" href="rules.html">规则</a>
+  <a class="tab{on_sim}" href="sim31-matrix.html">平衡性</a>
 </nav>
 <div class="wrap">
 {body}
@@ -161,6 +175,8 @@ h1 {{ font-size:clamp(30px,5.4vw,46px); letter-spacing:-.02em; color:#fff; margi
     <a class="card" href="story-alien.html"><div class="tag">剧情</div><h2>外星人胜利线</h2><p>星途归航 · 修订版——船体深处的低语。</p></a>
     <a class="card" href="story-xeno.html"><div class="tag">剧情</div><h2>异形胜利线</h2><p>寄生、觉醒与破壳之夜。</p></a>
     <a class="card" href="rules.html"><div class="tag">规则</div><h2>游戏规则 v3.0</h2><p>三阵营对抗 · 正式发布版全部条款、表格与【消歧】注释。</p></a>
+    <a class="card" href="sim31-matrix.html"><div class="tag">平衡性模拟</div><h2>策略矩阵报告（公测 3.1）</h2><p>异形三大流派权重化 · 感染为显式权重 · 均衡解。</p></a>
+    <a class="card" href="sim31-flows.html"><div class="tag">平衡性模拟</div><h2>异形流派核验（公测 3.1）</h2><p>击杀 / 破坏 / 感染 · 12/12 行为判据。</p></a>
   </div>
   <div class="foot"> <a href="https://github.com/hxj-2888/space-kill" rel="noopener" target="_blank">GitHub 仓库</a></div>
 </div>
@@ -272,12 +288,27 @@ def build():
             title, body = docx_to_fragment(path)
         on_story = ' on' if kind == 'story' else ''
         on_rules = ' on' if kind == 'rules' else ''
+        on_sim = ''
         page = PAGE_TMPL.format(
             title=short, desc=sub, body=body,
-            on_story=on_story, on_rules=on_rules,
+            on_story=on_story, on_rules=on_rules, on_sim=on_sim,
         )
         out = os.path.join(OUT, out_name)
         with open(out, 'w', encoding='utf-8') as f:
+            f.write(page)
+        print('%-40s -> site/%s  (%d paras)' % (rel, out_name, body.count('<p>')))
+    # 平衡性模拟成果页（公测3.1）——最新版，取缔旧模拟
+    for rel, out_name, short, sub in SIM31:
+        path = os.path.join(ROOT, rel)
+        if not os.path.exists(path):
+            print('SKIP(缺文件) %s' % rel)
+            continue
+        title, body = md_to_fragment(path)
+        page = PAGE_TMPL.format(
+            title=short, desc=sub, body=body,
+            on_story='', on_rules='', on_sim=' on',
+        )
+        with open(os.path.join(OUT, out_name), 'w', encoding='utf-8') as f:
             f.write(page)
         print('%-40s -> site/%s  (%d paras)' % (rel, out_name, body.count('<p>')))
     print('SITE_BUILD_OK -> site/')

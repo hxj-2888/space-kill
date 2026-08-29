@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>异形流派核验 · 太空杀</title>
+<meta name="description" content="击杀 / 破坏 / 感染 · 12/12 行为判据">
+<style>
+:root { --bg:#0a0a0f; --card:#141420; --line:#252535; --text:#e0e0ea; --muted:#8888a0; --accent:#818cf8; }
+* { margin:0; padding:0; box-sizing:border-box }
+body { background:var(--bg); color:var(--text); font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; line-height:1.9 }
+nav { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:14px; padding:14px 22px; background:rgba(10,10,15,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--line) }
+nav .brand { font-weight:700; letter-spacing:.02em; color:#fff; text-decoration:none; margin-right:auto }
+nav a.tab { color:var(--muted); text-decoration:none; font-size:14px; padding:5px 12px; border-radius:999px; transition:.15s }
+nav a.tab:hover { color:#fff }
+nav a.tab.on { color:#fff; background:var(--line) }
+.wrap { max-width:52rem; margin:0 auto; padding:48px 22px 96px }
+.filebox { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 18px; margin:10px 0; text-decoration:none; color:var(--text); display:block }
+.filebox:hover { border-color:var(--accent) }
+.filebox .t { font-weight:700; color:#fff }
+.filebox .s { color:var(--muted); font-size:13px; margin-top:3px }
+.kicker { font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin-bottom:10px }
+h1 { font-size:clamp(26px,4.6vw,38px); letter-spacing:-.02em; margin-bottom:28px; color:#fff }
+h2 { font-size:20px; color:#fff; margin:44px 0 14px; padding-left:12px; border-left:3px solid var(--accent) }
+p { margin:12px 0; color:#c9c9d9; font-size:16px }
+hr { border:none; border-top:1px solid var(--line); margin:32px 0 }
+table { border-collapse:collapse; width:100%; margin:18px 0; font-size:14.5px }
+th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; color:#c9c9d9 }
+th { background:#181826; color:#fff; white-space:nowrap }
+ul, ol { margin:12px 0 12px 26px; color:#c9c9d9; font-size:16px }
+li { margin:6px 0 }
+blockquote { margin:18px 0; padding:12px 18px; border-left:3px solid var(--accent); background:#12121e; border-radius:0 10px 10px 0 }
+blockquote p { color:var(--muted); font-size:15px }
+code { background:#1c1c2c; border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:13.5px; color:#a5b4fc }
+pre { background:#12121e; border:1px solid var(--line); border-radius:10px; padding:14px; overflow-x:auto; color:#c9c9d9; font-size:13px }
+.foot { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap }
+.foot a { color:var(--accent); text-decoration:none }
+</style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="index.html">🚀 太空杀 · 星途归航</a>
+  <a class="tab" href="story-human.html">剧情</a>
+  <a class="tab" href="rules.html">规则</a>
+  <a class="tab on" href="sim31-matrix.html">平衡性</a>
+</nav>
+<div class="wrap">
+<h1>太空杀 公测3.1 异形三流派核验报告（感染权重化 + 视情形觉醒转化）</h1>
+<p>每流派 <strong>1500 局</strong>（种子 61000），对手固定为人类 aggro × 外星人 hunter；规则版本 公测3.0（裁判零改动）。</p>
+<p>流派定义：<strong>击杀流 kill / 破坏流 sab / 感染流 infect</strong>；三者共用同一套“基础权重 × 情境系数”的觉醒—转化—当夜行动决策（感染为显式权重项）。</p>
+<h3>① 三流派胜率</h3>
+<table>
+<tr><th>异形流派</th><th>人类%</th><th>异形%</th><th>外星人%</th><th>平均夜数</th></tr>
+<tr><td>击杀流</td><td>48.1</td><td>23.9</td><td>28.0</td><td>8.4</td></tr>
+<tr><td>破坏流</td><td>56.3</td><td>13.1</td><td>28.9</td><td>12.1</td></tr>
+<tr><td>感染流</td><td>49.4</td><td>15.2</td><td>35.4</td><td>8.5</td></tr>
+</table>
+<h3>② 当夜行动占比（权重化抽样结果）</h3>
+<table>
+<tr><th>流派</th><th>出刀%</th><th>感染%</th><th>破坏%</th><th>结茧%</th></tr>
+<tr><td>击杀流</td><td>72.5</td><td>18.9</td><td>4.9</td><td>3.7</td></tr>
+<tr><td>破坏流</td><td>32.5</td><td>23.0</td><td>38.4</td><td>6.0</td></tr>
+<tr><td>感染流</td><td>21.5</td><td>70.3</td><td>4.6</td><td>3.6</td></tr>
+</table>
+<h3>③ 觉醒方向分布与胜率贡献</h3>
+<table>
+<tr><th>流派</th><th>方向</th><th>觉醒人次</th><th>占比</th><th>该方向异形胜率</th></tr>
+<tr><td>击杀流</td><td>击杀</td><td>2680</td><td>71.2%</td><td>26.4%</td></tr>
+<tr><td>击杀流</td><td>破坏</td><td>310</td><td>8.2%</td><td>31.9%</td></tr>
+<tr><td>击杀流</td><td>感染</td><td>774</td><td>20.6%</td><td>27.6%</td></tr>
+<tr><td>破坏流</td><td>击杀</td><td>1610</td><td>42.2%</td><td>22.2%</td></tr>
+<tr><td>破坏流</td><td>破坏</td><td>1183</td><td>31.0%</td><td>7.8%</td></tr>
+<tr><td>破坏流</td><td>感染</td><td>1020</td><td>26.8%</td><td>9.6%</td></tr>
+<tr><td>感染流</td><td>击杀</td><td>1444</td><td>37.8%</td><td>25.4%</td></tr>
+<tr><td>感染流</td><td>破坏</td><td>279</td><td>7.3%</td><td>10.0%</td></tr>
+<tr><td>感染流</td><td>感染</td><td>2095</td><td>54.9%</td><td>11.3%</td></tr>
+</table>
+<h3>④ 转化利用度</h3>
+<table>
+<tr><th>流派</th><th>0次转化%</th><th>1次转化%</th><th>2次转化%</th><th>每局转化次数</th><th>跨主方向占比</th></tr>
+<tr><td>击杀流</td><td>38.7</td><td>54.1</td><td>7.1</td><td>0.68</td><td>1.1%</td></tr>
+<tr><td>破坏流</td><td>47.7</td><td>35.3</td><td>16.2</td><td>0.70</td><td>97.2%</td></tr>
+<tr><td>感染流</td><td>23.9</td><td>42.8</td><td>27.5</td><td>1.16</td><td>54.6%</td></tr>
+</table>
+<h3>⑤ 转化路径明细（原方向 → 新方向）</h3>
+<table>
+<tr><th>流派</th><th>转化路径</th><th>次数</th><th>该局异形胜率</th></tr>
+<tr><td>击杀流</td><td>感染 → 击杀</td><td>509</td><td>25.7%</td></tr>
+<tr><td>击杀流</td><td>破坏 → 击杀</td><td>507</td><td>22.3%</td></tr>
+<tr><td>击杀流</td><td>破坏 → 感染</td><td>11</td><td>27.3%</td></tr>
+<tr><td>破坏流</td><td>破坏 → 击杀</td><td>502</td><td>26.5%</td></tr>
+<tr><td>破坏流</td><td>感染 → 击杀</td><td>399</td><td>27.3%</td></tr>
+<tr><td>破坏流</td><td>击杀 → 感染</td><td>122</td><td>18.0%</td></tr>
+<tr><td>破坏流</td><td>击杀 → 破坏</td><td>29</td><td>6.9%</td></tr>
+<tr><td>感染流</td><td>感染 → 击杀</td><td>733</td><td>29.1%</td></tr>
+<tr><td>感染流</td><td>击杀 → 感染</td><td>395</td><td>14.7%</td></tr>
+<tr><td>感染流</td><td>破坏 → 感染</td><td>393</td><td>12.0%</td></tr>
+<tr><td>感染流</td><td>破坏 → 击杀</td><td>213</td><td>29.6%</td></tr>
+</table>
+<h3>⑥ 判据核验</h3>
+<table>
+<tr><th>判据</th><th>结果</th></tr>
+<tr><td>A2 击杀流：出刀占比最高</td><td>PASS</td></tr>
+<tr><td>A5 击杀流：转化被充分利用</td><td>PASS</td></tr>
+<tr><td>A6 击杀流：转化方向随局势而变</td><td>PASS</td></tr>
+<tr><td>A1 击杀流：可正常运行且有胜场</td><td>PASS</td></tr>
+<tr><td>A3 破坏流：破坏占比最高</td><td>PASS</td></tr>
+<tr><td>A5 破坏流：转化被充分利用</td><td>PASS</td></tr>
+<tr><td>A6 破坏流：转化方向随局势而变</td><td>PASS</td></tr>
+<tr><td>A1 破坏流：可正常运行且有胜场</td><td>PASS</td></tr>
+<tr><td>A4 感染流：感染占比最高</td><td>PASS</td></tr>
+<tr><td>A5 感染流：转化被充分利用</td><td>PASS</td></tr>
+<tr><td>A6 感染流：转化方向随局势而变</td><td>PASS</td></tr>
+<tr><td>A1 感染流：可正常运行且有胜场</td><td>PASS</td></tr>
+</table>
+<div class="foot"><span>太空杀 · 三阵营身份博弈 · 公测 2.0</span><span><a href="https://github.com/hxj-2888/space-kill" rel="noopener" target="_blank">GitHub</a></span></div>
+</div>
+</body>
+</html>

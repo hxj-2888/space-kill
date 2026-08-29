@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>策略矩阵报告 · 太空杀</title>
+<meta name="description" content="18 组合 × 2000 局 · 异形三流派与均衡解">
+<style>
+:root { --bg:#0a0a0f; --card:#141420; --line:#252535; --text:#e0e0ea; --muted:#8888a0; --accent:#818cf8; }
+* { margin:0; padding:0; box-sizing:border-box }
+body { background:var(--bg); color:var(--text); font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; line-height:1.9 }
+nav { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:14px; padding:14px 22px; background:rgba(10,10,15,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--line) }
+nav .brand { font-weight:700; letter-spacing:.02em; color:#fff; text-decoration:none; margin-right:auto }
+nav a.tab { color:var(--muted); text-decoration:none; font-size:14px; padding:5px 12px; border-radius:999px; transition:.15s }
+nav a.tab:hover { color:#fff }
+nav a.tab.on { color:#fff; background:var(--line) }
+.wrap { max-width:52rem; margin:0 auto; padding:48px 22px 96px }
+.filebox { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 18px; margin:10px 0; text-decoration:none; color:var(--text); display:block }
+.filebox:hover { border-color:var(--accent) }
+.filebox .t { font-weight:700; color:#fff }
+.filebox .s { color:var(--muted); font-size:13px; margin-top:3px }
+.kicker { font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin-bottom:10px }
+h1 { font-size:clamp(26px,4.6vw,38px); letter-spacing:-.02em; margin-bottom:28px; color:#fff }
+h2 { font-size:20px; color:#fff; margin:44px 0 14px; padding-left:12px; border-left:3px solid var(--accent) }
+p { margin:12px 0; color:#c9c9d9; font-size:16px }
+hr { border:none; border-top:1px solid var(--line); margin:32px 0 }
+table { border-collapse:collapse; width:100%; margin:18px 0; font-size:14.5px }
+th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; color:#c9c9d9 }
+th { background:#181826; color:#fff; white-space:nowrap }
+ul, ol { margin:12px 0 12px 26px; color:#c9c9d9; font-size:16px }
+li { margin:6px 0 }
+blockquote { margin:18px 0; padding:12px 18px; border-left:3px solid var(--accent); background:#12121e; border-radius:0 10px 10px 0 }
+blockquote p { color:var(--muted); font-size:15px }
+code { background:#1c1c2c; border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:13.5px; color:#a5b4fc }
+pre { background:#12121e; border:1px solid var(--line); border-radius:10px; padding:14px; overflow-x:auto; color:#c9c9d9; font-size:13px }
+.foot { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap }
+.foot a { color:var(--accent); text-decoration:none }
+</style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="index.html">🚀 太空杀 · 星途归航</a>
+  <a class="tab" href="story-human.html">剧情</a>
+  <a class="tab" href="rules.html">规则</a>
+  <a class="tab on" href="sim31-matrix.html">平衡性</a>
+</nav>
+<div class="wrap">
+<h1>太空杀 公测3.1 策略矩阵报告（三方风格交叉对战）</h1>
+<p>模拟：<strong>18 组合 × 2000 局</strong>高水平对战（种子 90000）。规则版本：公测3.0（R1~R11 + 感染体系v3 + 倒计时24 + 补刀第4夜）。</p>
+<p>异形流派已收敛为 <strong>击杀流 kill / 破坏流 sab / 感染流 infect</strong>（原 mix 混合分工、balanced 均衡、mimic 拟态渗透已移除）；<strong>感染是行动权重表中的显式权重项</strong>，三大流派共用"视情形而定"的权重化觉醒与转化。</p>
+<p>默认参数：TRUSTED_LR=5.0 / ORDINARY_LR=1.12 / 记忆衰减0.97 / 情绪+追责+质询+引述全开。<strong>规则数值未改动</strong>，仅切换策略权重。</p>
+<h3>策略含义</h3>
+<table>
+<tr><th>阵营</th><th>风格</th><th>行为要点</th></tr>
+<tr><td>人类</td><td>std 标准广播</td><td>神探第2夜起有情报跳身份；船员双查锁定 70% 指认</td></tr>
+<tr><td>人类</td><td>passive 信息沉淀</td><td>神探永不跳；情报走私聊</td></tr>
+<tr><td>人类</td><td>aggro 激进广播</td><td>有情报必跳必指认</td></tr>
+<tr><td>异形</td><td>kill 击杀流</td><td>行动权重出刀最高；觉醒偏击杀（偶数夜双刀）；视情形转化为收割</td></tr>
+<tr><td>异形</td><td>sab 破坏流</td><td>行动权重破坏最高；觉醒偏破坏推停摆；净破坏封顶/残局时转化出击杀</td></tr>
+<tr><td>异形</td><td>infect 感染流</td><td>行动权重感染最高（感染为显式权重项）；觉醒偏感染，感染打满目标数</td></tr>
+<tr><td>外星</td><td>std 标准渔翁</td><td>建图→第6夜双刀→高价值收割</td></tr>
+<tr><td>外星</td><td>hunter 猎手双刀</td><td>第6夜 98% 觉醒，尽早双刀</td></tr>
+</table>
+<h3>① 全组合胜率矩阵</h3>
+<table>
+<tr><th>人类</th><th>异形</th><th>外星</th><th>人类%</th><th>异形%</th><th>外星%</th><th>极差pp</th><th>平均夜</th></tr>
+<tr><td>标准广播</td><td>击杀流·极限出刀</td><td>标准渔翁</td><td>46.1</td><td>26.4</td><td>27.5</td><td>19.7</td><td>8.2</td></tr>
+<tr><td>标准广播</td><td>击杀流·极限出刀</td><td>猎手双刀</td><td>46.5</td><td>25.1</td><td>28.4</td><td>21.4</td><td>8.3</td></tr>
+<tr><td>标准广播</td><td>破坏流·停摆推进</td><td>标准渔翁</td><td>51.4</td><td>13.1</td><td>33.5</td><td>38.2</td><td>12.6</td></tr>
+<tr><td>标准广播</td><td>破坏流·停摆推进</td><td>猎手双刀</td><td>52.2</td><td>13.8</td><td>32.4</td><td>38.5</td><td>11.8</td></tr>
+<tr><td>标准广播</td><td>感染流·寄生压制</td><td>标准渔翁</td><td>46.7</td><td>15.7</td><td>37.6</td><td>31.0</td><td>8.5</td></tr>
+<tr><td>标准广播</td><td>感染流·寄生压制</td><td>猎手双刀</td><td>48.8</td><td>15.2</td><td>36.0</td><td>33.5</td><td>8.5</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>击杀流·极限出刀</td><td>标准渔翁</td><td>45.6</td><td>25.2</td><td>29.1</td><td>20.4</td><td>8.1</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>击杀流·极限出刀</td><td>猎手双刀</td><td>44.3</td><td>25.3</td><td>30.4</td><td>19.0</td><td>8.3</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>破坏流·停摆推进</td><td>标准渔翁</td><td>52.9</td><td>14.4</td><td>31.1</td><td>38.5</td><td>11.7</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>破坏流·停摆推进</td><td>猎手双刀</td><td>52.0</td><td>13.6</td><td>32.5</td><td>38.4</td><td>12.3</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>感染流·寄生压制</td><td>标准渔翁</td><td>48.0</td><td>15.6</td><td>36.4</td><td>32.4</td><td>8.6</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>感染流·寄生压制</td><td>猎手双刀</td><td>48.1</td><td>15.8</td><td>36.0</td><td>32.3</td><td>8.6</td></tr>
+<tr><td>激进广播·神探必跳</td><td>击杀流·极限出刀</td><td>标准渔翁</td><td>47.4</td><td>26.6</td><td>26.0</td><td>21.4</td><td>8.3</td></tr>
+<tr><td>激进广播·神探必跳</td><td>击杀流·极限出刀</td><td>猎手双刀</td><td>47.4</td><td>24.6</td><td>28.0</td><td>22.8</td><td>8.4</td></tr>
+<tr><td>激进广播·神探必跳</td><td>破坏流·停摆推进</td><td>标准渔翁</td><td>51.7</td><td>14.2</td><td>31.4</td><td>37.5</td><td>13.8</td></tr>
+<tr><td>激进广播·神探必跳</td><td>破坏流·停摆推进</td><td>猎手双刀</td><td>53.8</td><td>15.0</td><td>28.6</td><td>38.8</td><td>13.7</td></tr>
+<tr><td>激进广播·神探必跳</td><td>感染流·寄生压制</td><td>标准渔翁</td><td>49.9</td><td>15.2</td><td>34.9</td><td>34.6</td><td>8.6</td></tr>
+<tr><td>激进广播·神探必跳</td><td>感染流·寄生压制</td><td>猎手双刀</td><td>49.9</td><td>16.2</td><td>33.9</td><td>33.7</td><td>8.5</td></tr>
+</table>
+<h3>② 人类风格稳健性（跨异形×外星均值）</h3>
+<table>
+<tr><th>人类风格</th><th>人类%</th><th>异形%</th><th>外星%</th></tr>
+<tr><td>标准广播</td><td>48.6</td><td>18.2</td><td>32.6</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>48.5</td><td>18.3</td><td>32.6</td></tr>
+<tr><td>激进广播·神探必跳</td><td>50.0</td><td>18.6</td><td>30.5</td></tr>
+</table>
+<h3>③ 异形风格稳健性（跨人类×外星均值）</h3>
+<table>
+<tr><th>异形风格</th><th>人类%</th><th>异形%</th><th>外星%</th></tr>
+<tr><td>击杀流·极限出刀</td><td>46.2</td><td>25.5</td><td>28.2</td></tr>
+<tr><td>破坏流·停摆推进</td><td>52.3</td><td>14.0</td><td>31.6</td></tr>
+<tr><td>感染流·寄生压制</td><td>48.6</td><td>15.6</td><td>35.8</td></tr>
+</table>
+<h3>④ 外星人风格稳健性（跨人类×异形均值）</h3>
+<table>
+<tr><th>外星风格</th><th>人类%</th><th>异形%</th><th>外星%</th></tr>
+<tr><td>标准渔翁</td><td>48.8</td><td>18.5</td><td>32.0</td></tr>
+<tr><td>猎手双刀</td><td>49.2</td><td>18.3</td><td>31.8</td></tr>
+</table>
+<h3>⑤ 目标贴合度（目标 人类40 / 异形35 / 外星人25）</h3>
+<table>
+<tr><th>人类</th><th>异形</th><th>外星</th><th>人类%</th><th>异形%</th><th>外星%</th><th>距目标(pp)</th></tr>
+<tr><td>标准广播</td><td>击杀流·极限出刀</td><td>标准渔翁</td><td>46.1</td><td>26.4</td><td>27.5</td><td>10.8</td></tr>
+<tr><td>激进广播·神探必跳</td><td>击杀流·极限出刀</td><td>标准渔翁</td><td>47.4</td><td>26.6</td><td>26.0</td><td>11.3</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>击杀流·极限出刀</td><td>猎手双刀</td><td>44.3</td><td>25.3</td><td>30.4</td><td>11.9</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>击杀流·极限出刀</td><td>标准渔翁</td><td>45.6</td><td>25.2</td><td>29.1</td><td>12.0</td></tr>
+<tr><td>标准广播</td><td>击杀流·极限出刀</td><td>猎手双刀</td><td>46.5</td><td>25.1</td><td>28.4</td><td>12.3</td></tr>
+<tr><td>激进广播·神探必跳</td><td>击杀流·极限出刀</td><td>猎手双刀</td><td>47.4</td><td>24.6</td><td>28.0</td><td>13.1</td></tr>
+<tr><td>激进广播·神探必跳</td><td>感染流·寄生压制</td><td>猎手双刀</td><td>49.9</td><td>16.2</td><td>33.9</td><td>23.0</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>感染流·寄生压制</td><td>猎手双刀</td><td>48.1</td><td>15.8</td><td>36.0</td><td>23.6</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>感染流·寄生压制</td><td>标准渔翁</td><td>48.0</td><td>15.6</td><td>36.4</td><td>23.9</td></tr>
+<tr><td>标准广播</td><td>感染流·寄生压制</td><td>标准渔翁</td><td>46.7</td><td>15.7</td><td>37.6</td><td>24.0</td></tr>
+<tr><td>激进广播·神探必跳</td><td>感染流·寄生压制</td><td>标准渔翁</td><td>49.9</td><td>15.2</td><td>34.9</td><td>24.2</td></tr>
+<tr><td>标准广播</td><td>感染流·寄生压制</td><td>猎手双刀</td><td>48.8</td><td>15.2</td><td>36.0</td><td>24.2</td></tr>
+<tr><td>激进广播·神探必跳</td><td>破坏流·停摆推进</td><td>猎手双刀</td><td>53.8</td><td>15.0</td><td>28.6</td><td>24.6</td></tr>
+<tr><td>激进广播·神探必跳</td><td>破坏流·停摆推进</td><td>标准渔翁</td><td>51.7</td><td>14.2</td><td>31.4</td><td>24.7</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>破坏流·停摆推进</td><td>标准渔翁</td><td>52.9</td><td>14.4</td><td>31.1</td><td>25.0</td></tr>
+<tr><td>标准广播</td><td>破坏流·停摆推进</td><td>猎手双刀</td><td>52.2</td><td>13.8</td><td>32.4</td><td>25.6</td></tr>
+<tr><td>信息沉淀·神探不跳</td><td>破坏流·停摆推进</td><td>猎手双刀</td><td>52.0</td><td>13.6</td><td>32.5</td><td>25.7</td></tr>
+<tr><td>标准广播</td><td>破坏流·停摆推进</td><td>标准渔翁</td><td>51.4</td><td>13.1</td><td>33.5</td><td>26.1</td></tr>
+</table>
+<ul><li>最贴近目标 40/35/25 的组合：<strong>人类 标准广播 / 异形 击杀流·极限出刀 / 外星 标准渔翁 → 46.1 / 26.4 / 27.5</strong></li></ul>
+<h3>⑥ 最优应对与均衡解（最佳响应迭代）</h3>
+<p>迭代路径：(std,kill,std) → (aggro,kill,hunter)</p>
+<table>
+<tr><th>解</th><th>人类</th><th>异形</th><th>外星</th><th>人类%</th><th>异形%</th><th>外星%</th><th>距目标(pp)</th></tr>
+<tr><td>均衡解（各方均为最优应对）</td><td>激进广播·神探必跳</td><td>击杀流·极限出刀</td><td>猎手双刀</td><td>47.4</td><td>24.6</td><td>28.0</td><td>13.1</td></tr>
+<tr><td>目标贴合解（欧氏距离最小）</td><td>标准广播</td><td>击杀流·极限出刀</td><td>标准渔翁</td><td>46.1</td><td>26.4</td><td>27.5</td><td>10.8</td></tr>
+</table>
+<blockquote><p>说明：本矩阵仅切换 AI 策略权重，不改规则数值。若均衡解与目标仍有缺口，差额只能由规则层旋钮（感染死亡夜 / 救援额度 / 停摆奖励 / 神探查验频率等）补齐。</p></blockquote>
+<h3>⑦ 关键观察</h3>
+<ul><li>异形三大流派中 <strong>kill</strong> 的异形胜率最高（跨人类×外星均值 25.5%）。</li><li>三大流派的行动占比、觉醒方向分布与转化利用度见 <code>异形流派核验.md</code>（verify_alien31.py）。</li><li>目标 40/35/25 的缺口由规则层旋钮补齐；本次按约定<strong>保留策略层改动，不施加规则数值削弱</strong>。</li></ul>
+<div class="foot"><span>太空杀 · 三阵营身份博弈 · 公测 2.0</span><span><a href="https://github.com/hxj-2888/space-kill" rel="noopener" target="_blank">GitHub</a></span></div>
+</div>
+</body>
+</html>
