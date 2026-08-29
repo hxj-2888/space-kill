@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """build_site.py — 太空杀静态站生成器
-把 公测2.0 的 规则.docx 与三篇胜利线（剧情）docx 转成 site/ 下的静态 HTML。
+规则取 公测3.0 的 Markdown（最新正式版），剧情（三条胜利线）取 公测2.0 的 docx，
+统一转成 site/ 下的静态 HTML。
 只用标准库 + python-docx；只收录「剧情 / 规则」，其余文档（调试、模拟、策略）不入站。
 用法: python tools/build_site.py
 """
@@ -13,15 +14,20 @@ import sys
 import docx
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, '公测2.0')
+SRC2 = os.path.join(ROOT, '公测2.0')
+SRC3 = os.path.join(ROOT, '公测3.0')
 OUT = os.path.join(ROOT, 'site')
 
 DOCS = [
-    # (docx 文件, 输出文件名, 栏目, 短标题, 副标题)
-    ('规则.docx', 'rules.html', 'rules', '游戏规则', '三阵营对抗 · 公测 2.0 正式规则'),
-    ('人类胜利线.docx', 'story-human.html', 'story', '星途归航 · 人类胜利线', '剧情 · 最终版'),
-    ('外星人胜利线.docx', 'story-alien.html', 'story', '星途归航 · 外星人胜利线', '剧情 · 修订版'),
-    ('异形胜利线.docx', 'story-xeno.html', 'story', '星途归航 · 异形胜利线', '剧情'),
+    # (来源路径, 输出文件名, 栏目, 短标题, 副标题, 转换器)
+    (os.path.join('公测3.0', '太空杀_公测3.0_规则.md'), 'rules.html', 'rules',
+     '游戏规则', '三阵营对抗 · 公测 3.0 正式规则', 'md'),
+    (os.path.join('公测2.0', '人类胜利线.docx'), 'story-human.html', 'story',
+     '星途归航 · 人类胜利线', '剧情 · 最终版', 'docx'),
+    (os.path.join('公测2.0', '外星人胜利线.docx'), 'story-alien.html', 'story',
+     '星途归航 · 外星人胜利线', '剧情 · 修订版', 'docx'),
+    (os.path.join('公测2.0', '异形胜利线.docx'), 'story-xeno.html', 'story',
+     '星途归航 · 异形胜利线', '剧情', 'docx'),
 ]
 
 RE_CHAPTER = re.compile(r'^第[0-9一二三四五六七八九十百零两]+[章节篇部回]')
@@ -92,6 +98,15 @@ h1 {{ font-size:clamp(26px,4.6vw,38px); letter-spacing:-.02em; margin-bottom:28p
 h2 {{ font-size:20px; color:#fff; margin:44px 0 14px; padding-left:12px; border-left:3px solid var(--accent) }}
 p {{ margin:12px 0; color:#c9c9d9; font-size:16px }}
 hr {{ border:none; border-top:1px solid var(--line); margin:32px 0 }}
+table {{ border-collapse:collapse; width:100%; margin:18px 0; font-size:14.5px }}
+th, td {{ border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; color:#c9c9d9 }}
+th {{ background:#181826; color:#fff; white-space:nowrap }}
+ul, ol {{ margin:12px 0 12px 26px; color:#c9c9d9; font-size:16px }}
+li {{ margin:6px 0 }}
+blockquote {{ margin:18px 0; padding:12px 18px; border-left:3px solid var(--accent); background:#12121e; border-radius:0 10px 10px 0 }}
+blockquote p {{ color:var(--muted); font-size:15px }}
+code {{ background:#1c1c2c; border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:13.5px; color:#a5b4fc }}
+pre {{ background:#12121e; border:1px solid var(--line); border-radius:10px; padding:14px; overflow-x:auto; color:#c9c9d9; font-size:13px }}
 .foot {{ margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap }}
 .foot a {{ color:var(--accent); text-decoration:none }}
 </style>
@@ -138,14 +153,14 @@ h1 {{ font-size:clamp(30px,5.4vw,46px); letter-spacing:-.02em; color:#fff; margi
 </head>
 <body>
 <div class="wrap">
-  <div class="kicker">Space Kill · 公测 2.0</div>
+  <div class="kicker">Space Kill · 公测 3.0</div>
   <h1>太空杀 · 星途归航</h1>
-  <p class="sub">15 人三阵营（人类 11 / 异形 3 / 外星人 1）身份博弈桌游。这里收录官方剧情（三条胜利线）与正式规则。</p>
+  <p class="sub">15 人三阵营（人类 11 / 异形 3 / 外星人 1）身份博弈桌游。这里收录官方剧情（三条胜利线）与最新正式规则（公测 3.0）。</p>
   <div class="grid">
     <a class="card" href="story-human.html"><div class="tag">剧情</div><h2>人类胜利线</h2><p>星途归航 · 最终版——信天翁号的二十昼夜。</p></a>
     <a class="card" href="story-alien.html"><div class="tag">剧情</div><h2>外星人胜利线</h2><p>星途归航 · 修订版——船体深处的低语。</p></a>
     <a class="card" href="story-xeno.html"><div class="tag">剧情</div><h2>异形胜利线</h2><p>寄生、觉醒与破壳之夜。</p></a>
-    <a class="card" href="rules.html"><div class="tag">规则</div><h2>游戏规则 v1.2</h2><p>三阵营对抗 · 正式发布版全部条款与注释。</p></a>
+    <a class="card" href="rules.html"><div class="tag">规则</div><h2>游戏规则 v3.0</h2><p>三阵营对抗 · 正式发布版全部条款、表格与【消歧】注释。</p></a>
   </div>
   <div class="foot"> <a href="https://github.com/hxj-2888/space-kill" rel="noopener" target="_blank">GitHub 仓库</a></div>
 </div>
@@ -154,13 +169,107 @@ h1 {{ font-size:clamp(30px,5.4vw,46px); letter-spacing:-.02em; color:#fff; margi
 """
 
 
+def md_inline(text):
+    """行内 Markdown：转义 + **加粗** + `代码`。"""
+    t = html.escape(text, quote=False)
+    t = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', t)
+    t = re.sub(r'`([^`]+)`', r'<code>\1</code>', t)
+    return t
+
+
+def md_to_fragment(path):
+    """Markdown → (title, body_html)。支持标题/表格/列表/引用/分隔线/段落。"""
+    with open(path, encoding='utf-8') as f:
+        lines = f.read().splitlines()
+    title = ''
+    out = []
+    i = 0
+    first = True
+    while i < len(lines):
+        line = lines[i].rstrip()
+        if not line.strip():
+            i += 1
+            continue
+        if line.startswith('```'):  # 代码块（规则文本中无，兜底整块收进 pre）
+            i += 1
+            block = []
+            while i < len(lines) and not lines[i].startswith('```'):
+                block.append(lines[i])
+                i += 1
+            i += 1
+            out.append('<pre>' + html.escape('\n'.join(block)) + '</pre>')
+            continue
+        if line.startswith('#'):
+            level = len(line) - len(line.lstrip('#'))
+            text = line.lstrip('#').strip()
+            if first:
+                title = text
+                out.append('<h1>' + md_inline(text) + '</h1>')
+                first = False
+            else:
+                out.append('<h%d>' % min(level + 1, 4) + md_inline(text) + '</h%d>' % min(level + 1, 4))
+            i += 1
+            continue
+        if set(line.strip()) <= {'-', '*'} and len(line.strip()) >= 3:
+            out.append('<hr>')
+            i += 1
+            continue
+        if line.lstrip().startswith('|'):  # 表格（下一行是分隔行）
+            rows = []
+            while i < len(lines) and lines[i].lstrip().startswith('|'):
+                cells = [c.strip() for c in lines[i].strip().strip('|').split('|')]
+                if not all(set(c) <= {'-', ':', ' '} for c in cells):
+                    rows.append(cells)
+                i += 1
+            if rows:
+                t = ['<table>', '<tr>' + ''.join('<th>' + md_inline(c) + '</th>' for c in rows[0]) + '</tr>']
+                for r in rows[1:]:
+                    t.append('<tr>' + ''.join('<td>' + md_inline(c) + '</td>' for c in r) + '</tr>')
+                t.append('</table>')
+                out.append('\n'.join(t))
+            continue
+        if line.lstrip().startswith('- '):  # 无序列表
+            items = []
+            while i < len(lines) and lines[i].lstrip().startswith('- '):
+                items.append('<li>' + md_inline(lines[i].lstrip()[2:].strip()) + '</li>')
+                i += 1
+            out.append('<ul>' + ''.join(items) + '</ul>')
+            continue
+        if re.match(r'^\d+\.\s', line.lstrip()):  # 有序列表
+            items = []
+            while i < len(lines) and re.match(r'^\d+\.\s', lines[i].lstrip()):
+                items.append('<li>' + md_inline(re.sub(r'^\d+\.\s', '', lines[i].lstrip())) + '</li>')
+                i += 1
+            out.append('<ol>' + ''.join(items) + '</ol>')
+            continue
+        if line.lstrip().startswith('>'):  # 引用块
+            quote = []
+            while i < len(lines) and lines[i].lstrip().startswith('>'):
+                quote.append(lines[i].lstrip()[1:].strip())
+                i += 1
+            out.append('<blockquote><p>' + md_inline(' '.join(q for q in quote if q)) + '</p></blockquote>')
+            continue
+        if first:
+            title = line.strip()
+            out.append('<h1>' + md_inline(line.strip()) + '</h1>')
+            first = False
+            i += 1
+            continue
+        out.append('<p>' + md_inline(line.strip()) + '</p>')
+        i += 1
+    return title, '\n'.join(out)
+
+
 def build():
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, 'index.html'), 'w', encoding='utf-8') as f:
         f.write(INDEX_TMPL)
-    for src_name, out_name, kind, short, sub in DOCS:
-        path = os.path.join(SRC, src_name)
-        title, body = docx_to_fragment(path)
+    for rel, out_name, kind, short, sub, conv in DOCS:
+        path = os.path.join(ROOT, rel)
+        if conv == 'md':
+            title, body = md_to_fragment(path)
+        else:
+            title, body = docx_to_fragment(path)
         on_story = ' on' if kind == 'story' else ''
         on_rules = ' on' if kind == 'rules' else ''
         page = PAGE_TMPL.format(
@@ -170,7 +279,7 @@ def build():
         out = os.path.join(OUT, out_name)
         with open(out, 'w', encoding='utf-8') as f:
             f.write(page)
-        print('%-22s -> site/%s  (%d paras)' % (src_name, out_name, body.count('<p>')))
+        print('%-40s -> site/%s  (%d paras)' % (rel, out_name, body.count('<p>')))
     print('SITE_BUILD_OK -> site/')
 
 
