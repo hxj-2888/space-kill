@@ -21,7 +21,7 @@ N_A, N_B = 300, 800
 TARGET = (40.0, 35.0, 25.0)
 
 HUMANS = ['std', 'passive', 'aggro', 'skeptic', 'guardian']
-ALIENS = ['aggro', 'balanced', 'sab', 'mix', 'mimic']
+ALIENS = ['kill', 'sab', 'infect']
 FOREIGNS = ['std', 'hunter', 'kingmaker']
 
 
@@ -50,7 +50,7 @@ report.append('|---|---|---|---|---|---|')
 results = {}
 seed = 1000
 for h in HUMANS:
-    r = run(h, 'aggro', 'std', N_A, seed); seed += 1
+    r = run(h, 'kill', 'std', N_A, seed); seed += 1
     results[('human', h)] = r
     report.append('| 人类 | %s | %.1f | %.1f | %.1f | %.1f |' % (h, r[0], r[1], r[2], r[3]))
     print('human %-9s %.1f/%.1f/%.1f' % (h, r[0], r[1], r[2]))
@@ -60,7 +60,7 @@ for a in ALIENS:
     report.append('| 异形 | %s | %.1f | %.1f | %.1f | %.1f |' % (a, r[0], r[1], r[2], r[3]))
     print('alien %-9s %.1f/%.1f/%.1f' % (a, r[0], r[1], r[2]))
 for x in FOREIGNS:
-    r = run('std', 'aggro', x, N_A, seed); seed += 1
+    r = run('std', 'kill', x, N_A, seed); seed += 1
     results[('foreigner', x)] = r
     report.append('| 外星人 | %s | %.1f | %.1f | %.1f | %.1f |' % (x, r[0], r[1], r[2], r[3]))
     print('foreign %-9s %.1f/%.1f/%.1f' % (x, r[0], r[1], r[2]))

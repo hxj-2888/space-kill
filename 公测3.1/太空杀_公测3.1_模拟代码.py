@@ -150,7 +150,7 @@ class Observation:
                  'quota_left', 'teammates', 'blocked_targets', 'self_treat_left',
                  'double_ready', 'infected_set', 'chat_partner_count', 'crew_half',
                  'alien_ids', 'humans_alive', 'aliens_alive', 'dying', 'scapegoat',
-                 'i_am_key_role')
+                 'i_am_key_role', 'own_sabotage_count', 'awak_night', 'teammate_dirs')
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -178,6 +178,7 @@ class Memory:
         self.seen_claims = set()       # 已消化的 (speaker, target) 指控——同一证据只更新一次
         self.accuser_cnt = Counter()   # 我见过的对 t 的独立指控人数（交叉验证去重）
         self.confirmed = set()         # 确证情报（豁免记忆衰减）
+        self.my_infected = set()       # 我自己感染过的目标（被治好后带抗体，再感染大概率被挡）
         self.last_decay_night = None
         self.promises = {}             # maker -> (night, target)：对方向我许诺的投票
         self.chat_claims = {}          # target -> speaker：私聊中对方的怀疑对象（可公开引述）
@@ -249,24 +250,97 @@ FINISH_DYING = 6.0             # 出刀评分：补刀濒死
 
 # ---- 策略花名册（交叉收敛选优，见 cross_converge.py）----
 HUMAN_STYLE = 'aggro'      # std / passive / aggro / skeptic / guardian（交叉收敛定版）
-ALIEN_STYLE = 'mix'        # aggro / balanced / sab / mix / mimic（交叉收敛定版）
+ALIEN_STYLE = 'kill'       # kill 击杀流 / sab 破坏流 / infect 感染流（三大流派定版）
 FOREIGNER_STYLE = 'hunter' # std / hunter / kingmaker（交叉收敛定版）
 HUMAN_VOTE_TH = {'std': 0.35, 'passive': 0.50, 'aggro': 0.25,
                  'skeptic': 0.35, 'guardian': 0.35}
-ALIEN_AWAKEN_ORDER = {
-    'aggro':    ['感染', '击杀', '破坏'],
-    'balanced': ['感染', '击杀', '破坏'],
-    'sab':      ['破坏', '感染', '击杀'],
-    'mix':      ['破坏', '感染', '击杀'],   # 首只占破坏，队友走感染/击杀（占位互斥逻辑）
-    'mimic':    ['感染', '击杀', '破坏'],
+
+# ============================ 异形三大流派：权重体系 ============================
+# 【设计原则】出刀/感染/破坏/结茧 = 四项显式权重；觉醒方向、转化方向同为权重抽样。
+# 三项决策（觉醒 / 转化 / 当夜行动）都由「流派基础权重 × 情境系数」决定，
+# 因此同一流派在不同局势下会自主切换路线（视情形而定的觉醒转化），而非固定顺序表。
+
+# ① 当夜行动权重（感染为显式权重项，不再是硬编码分支概率）
+ACTION_NOISE_COEF = 0.35    # 技能噪声对行动/觉醒权重的展平系数（1.0=完全展平，实测过强会拖垮异形）
+ALIEN_ACTION_WEIGHTS = {
+    #            出刀    感染    破坏    结茧
+    'kill':     {'出刀': 1.30, '感染': 0.35, '破坏': 0.10, '结茧': 0.03},
+    'sab':      {'出刀': 0.16, '感染': 0.12, '破坏': 1.85, '结茧': 0.06},
+    'infect':   {'出刀': 0.35, '感染': 1.60, '破坏': 0.10, '结茧': 0.03},
 }
-ALIEN_TRANSFORM = {   # (最早夜, 概率, 目标方向优先)
-    'aggro':    (3, 0.9, ['击杀', '破坏']),
-    'balanced': (4, 0.75, ['击杀']),
-    'sab':      (3, 0.9, ['破坏']),
-    'mix':      (4, 0.8, ['击杀']),
-    'mimic':    (4, 0.85, ['击杀']),
+# 行动权重情境系数（全部来自合法观测：自身觉醒方向 / 夜数 / 倒计时 / 存活数 / 公开名单）
+W_INFECT = dict(
+    awak_dir=1.80,    # 自身是感染觉醒方向（感染第2夜死、目标数2~3）
+    off_dir=0.70,     # 非感染方向（第3夜才死、目标数1~2，收益打折）
+    early=1.25,       # 第5夜前：感染需跨夜结算，越早种下收益越高
+    fresh=1.30,       # 未感染人类≥4：有足够扩散面（避免挤在同一批人身上）
+    press=0.55,       # 倒计时<9：来不及等感染结算
+    endgame=0.50,     # 存活人类≤4：残局要即刻减员
+    overload=1.25,    # 场上已有1名感染者（医生每夜仅1记出手，压制溢出）
+    overload2=1.40,   # 场上已有≥2名感染者：治疗额度必然不够
+)
+W_KILL = dict(
+    finish=1.90,      # 场上有濒死者可补刀（再受击直接死亡）
+    endgame=1.60,     # 存活人类≤4 或 倒计时<9：终局收割
+    awak_dir=1.50,    # 自身是击杀觉醒方向（偶数夜双刀）
+    press=1.30,       # 倒计时<12：抢在停摆/维修前减员
+    inf_lock=1.35,    # 场上已有≥2名感染者：医生每晚仅一记出手，刀伤无人可救
+)
+W_SAB = dict(
+    awak_dir=1.80,    # 自身是破坏觉醒方向（增量3.0 vs 基础1.5）
+    off_dir=0.45,     # 非破坏方向：破坏增量只有1.5
+    near_expose=0.50, # 自身破坏≥2次且未公开暴露（再破坏即暴露编号）
+    high_net=0.75,    # 净破坏≥5：逼近停摆阈值，边际收益递减
+    cap=0.02,         # 净破坏≥SAB_NET_CAP：破坏权重归零
+)
+# 净破坏封顶夜：破坏会直接叠加倒计时（对人类不利），停摆阈值最高 9.0，
+# 故封顶设在 9.0 之后——超过后边际收益转为纯粹的倒计时拖延。
+SAB_NET_CAP = 9.0
+W_COCOON = dict(
+    idle=0.45,        # 常态结茧（蓄力/制造行动噪音）
+    exposed=2.20,     # 自身已被公开暴露 → 结茧自保
+    endgame=0.30,     # 残局结茧无意义
+)
+
+# ② 觉醒方向权重（替代固定顺序表）
+ALIEN_AWAKEN_WEIGHTS = {
+    'kill':     {'击杀': 2.20, '感染': 0.70, '破坏': 0.25},
+    'sab':      {'破坏': 2.60, '感染': 0.60, '击杀': 0.35},
+    'infect':   {'感染': 2.80, '击杀': 0.50, '破坏': 0.30},
 }
+AWAK_CTX = dict(
+    occupied=0.25,    # 队友已占该方向（永久占位制，重复占方向浪费额度）
+    infect_early=1.40,# 感染：第4夜前觉醒
+    infect_many=1.20, # 感染：存活人类≥8（人海中感染扩散收益高）
+    kill_press=1.15,  # 击杀：倒计时<12（需要即刻减员）
+    kill_few=1.12,    # 击杀：存活人类≤6
+    sab_high=0.50,    # 破坏：净破坏已≥5（同一方向拥挤）
+    sab_late=1.30,    # 破坏：倒计时≥15 且 净破坏<3（早期铺停摆）
+)
+
+# ③ 转化（觉醒方向切换）：最早夜 / 基础概率 / 目标方向权重
+ALIEN_TRANSFORM = {
+    'kill':     (3, 0.85, {'击杀': 1.60, '感染': 0.70, '破坏': 0.60}),
+    'sab':      (3, 0.85, {'破坏': 1.70, '感染': 0.80, '击杀': 0.60}),
+    'infect':   (3, 0.85, {'感染': 1.50, '击杀': 1.10, '破坏': 0.60}),
+}
+ALIEN_MAIN_DIR = {'kill': '击杀', 'sab': '破坏', 'infect': '感染'}   # 流派 ↔ 觉醒方向 主项
+# 感染目标数是否取规则上限（规则 5.4：感染觉醒 2~3 名）——感染流打满以挤爆治疗额度
+ALIEN_INFECT_MAX = {'kill': False, 'sab': False, 'infect': True}
+TRANSFORM_VAL = dict(
+    kill_press=1.60,      # 击杀：倒计时<12 或 人类≤5（收割窗口）
+    kill_finish=1.40,     # 击杀：场上存在濒死者
+    infect_early=1.50,    # 感染：第5夜前且未感染比例高
+    infect_overload=1.35, # 感染：已有感染者（压制治疗额度）
+    infect_late=0.40,     # 感染：人类≤4（来不及跨夜结算）
+    sab_headroom=1.40,    # 破坏：净破坏<3 且 自身未因破坏暴露
+    sab_crowded=0.55,     # 破坏：净破坏≥5
+    sab_endgame=0.45,     # 破坏：存活人类≤4（停摆来不及兑现，改收割更值）
+    off_dir=0.80,         # 非自身流派主方向（转化后失去流派特长）
+)
+TRANSFORM_GAIN_TH = 1.75      # 目标方向价值需达当前方向价值的倍数才值得转化（转化当夜无行动）
+TRANSFORM_PROB_GAIN = 0.35    # 超阈部分折算为转化概率的系数
+TRANSFORM_MIN_STAY = 1        # 首次转化：觉醒后至少间隔 1 夜（第 2 次转化：+2 夜）
 
 def _cands(obs, mem, exclude=()):
     return [t for t in obs['alive'] if t != obs['me_id'] and t not in exclude
@@ -301,13 +375,12 @@ def decide_vote(obs, mem, rng, skill):
             if confuse:
                 return rng.choice(confuse[:4])
             return None
-        herd_th = 2 if ALIEN_STYLE == 'mimic' else 3
+        herd_th = 3
         if herd_top is not None and herd[herd_top] >= herd_th and herd_top not in mates:
             return herd_top if rng.random() < 0.85 else None
-        if ALIEN_STYLE != 'mimic':
-            sg = obs.get('scapegoat')
-            if sg is not None and sg != obs['me_id'] and sg in obs['alive'] and sg not in mates:
-                return sg if rng.random() < 0.8 else (_top_eff(obs, mem, exclude=mates, rng=rng) or sg)
+        sg = obs.get('scapegoat')
+        if sg is not None and sg != obs['me_id'] and sg in obs['alive'] and sg not in mates:
+            return sg if rng.random() < 0.8 else (_top_eff(obs, mem, exclude=mates, rng=rng) or sg)
     if obs['my_camp'] == 'foreigner':
         known_alien = [t for t, is_a in obs['known_alien'].items()
                        if is_a and t in obs['alive'] and t not in mates]
@@ -466,20 +539,216 @@ def decide_kill(obs, mem, rng, skill, avoid=None):
     cands.sort(key=s, reverse=True)
     return maybe_noise(rng, skill, obs['night'], cands[0], cands[:3])
 
+def _weighted_pick(rng, weights):
+    """权重抽样：weights = {key: w>0}；全零时返回 None。"""
+    tot = sum(w for w in weights.values() if w > 0)
+    if tot <= 0:
+        return None
+    r = rng.random() * tot
+    acc = 0.0
+    for k, w in weights.items():
+        if w <= 0:
+            continue
+        acc += w
+        if r <= acc:
+            return k
+    return None
+
+def _flatten(weights, noise):
+    """技能噪声：把权重向量向均匀分布展平（噪声越大越接近瞎选）。"""
+    if noise <= 0:
+        return dict(weights)
+    keys = list(weights)
+    mean = sum(weights[k] for k in keys) / max(1, len(keys))
+    return {k: (1 - noise) * weights[k] + noise * mean for k in keys}
+
+def decide_alien_action(obs, mem, rng, skill):
+    """异形当夜行动：出刀/感染/破坏/结茧 四项显式权重 × 情境系数 → 加权抽样。
+    【感染为权重】感染不再由硬编码分支概率决定，而是与其余行动同处一张权重表，
+    由 W_INFECT 系列情境系数（觉醒方向/夜数/倒计时/存活数/感染负荷）连续调节。"""
+    base = ALIEN_ACTION_WEIGHTS.get(ALIEN_STYLE, ALIEN_ACTION_WEIGHTS['kill'])
+    w = dict(base)
+    humans = obs['humans_alive']
+    night = obs['night']
+    cd = obs['countdown']
+    awak = obs.get('awak_dir')
+    aliens = set(obs.get('alien_ids') or ())
+    infected = sum(1 for t, v in obs['infected_set'].items() if v and t not in aliens)
+    uninfected = max(0, humans - infected)
+    exposed = obs['exposed'] or set()
+    # ---- 感染权重 ----
+    iw = 1.0
+    iw *= W_INFECT['awak_dir'] if awak == '感染' else W_INFECT['off_dir']
+    if night <= 5:
+        iw *= W_INFECT['early']
+    if uninfected >= 4:
+        iw *= W_INFECT['fresh']
+    if cd < 9:
+        iw *= W_INFECT['press']
+    if humans <= 4:
+        iw *= W_INFECT['endgame']
+    if infected >= 2:
+        iw *= W_INFECT['overload2']
+    elif infected >= 1:
+        iw *= W_INFECT['overload']
+    w['感染'] *= iw
+    if uninfected <= 0:
+        w['感染'] = 0.0      # 已无可感染目标
+    # ---- 出刀权重 ----
+    kw = 1.0
+    if obs['dying']:
+        kw *= W_KILL['finish']
+    if humans <= 4 or cd < 9:
+        kw *= W_KILL['endgame']
+    if awak == '击杀':
+        kw *= W_KILL['awak_dir']
+    if cd < 12:
+        kw *= W_KILL['press']
+    if infected >= 2:
+        kw *= W_KILL['inf_lock']
+    w['出刀'] *= kw
+    # ---- 破坏权重 ----
+    sw = 1.0
+    sw *= W_SAB['awak_dir'] if awak == '破坏' else W_SAB['off_dir']
+    if obs['net_sabotage'] >= 5:
+        sw *= W_SAB['high_net']
+    if obs.get('own_sabotage_count', 0) >= 2 and obs['me_id'] not in exposed:
+        sw *= W_SAB['near_expose']
+    if obs['net_sabotage'] >= SAB_NET_CAP:
+        sw *= W_SAB['cap']
+    w['破坏'] *= sw
+    # ---- 结茧权重 ----
+    cw = W_COCOON['idle']
+    if obs['me_id'] in exposed:
+        cw *= W_COCOON['exposed']
+    if humans <= 4:
+        cw *= W_COCOON['endgame']
+    w['结茧'] *= cw
+    # 技能噪声展平 → 加权抽样
+    act = _weighted_pick(rng, _flatten(w, noise_rate(skill, night, mem.emotion.panic)
+                                       * ACTION_NOISE_COEF))
+    return act or '出刀'
+
+def decide_awaken_dir(obs, mem, rng, skill):
+    """觉醒方向：流派基础权重 × 情境系数 → 加权抽样（视情形而定，非固定顺序）。"""
+    base = ALIEN_AWAKEN_WEIGHTS.get(ALIEN_STYLE, ALIEN_AWAKEN_WEIGHTS['kill'])
+    avail = [d for d, q in (obs.get('quota_left') or {}).items() if q > 0]
+    if not avail:
+        return None
+    taken = set()
+    for tid in (obs.get('teammates') or []):
+        taken |= set((obs.get('teammate_dirs') or {}).get(tid, ()))
+    w = {}
+    for d in avail:
+        v = base.get(d, 0.5)
+        if d in taken:
+            v *= AWAK_CTX['occupied']
+        if d == '感染':
+            if obs['night'] <= 4:
+                v *= AWAK_CTX['infect_early']
+            if obs['humans_alive'] >= 8:
+                v *= AWAK_CTX['infect_many']
+        elif d == '击杀':
+            if obs['countdown'] < 12:
+                v *= AWAK_CTX['kill_press']
+            if obs['humans_alive'] <= 6:
+                v *= AWAK_CTX['kill_few']
+        elif d == '破坏':
+            if obs['net_sabotage'] >= 5:
+                v *= AWAK_CTX['sab_high']
+            if obs['countdown'] >= 15 and obs['net_sabotage'] < 3:
+                v *= AWAK_CTX['sab_late']
+        w[d] = max(0.0, v)
+    d = _weighted_pick(rng, _flatten(w, noise_rate(skill, obs['night'], mem.emotion.panic)
+                                     * ACTION_NOISE_COEF))
+    return d or (avail[0] if avail else None)
+
+def decide_transform(obs, mem, rng, skill):
+    """转化决策：逐个方向估值 → 目标方向价值显著高于当前方向才转化（转化当夜无行动）。
+    返回 (是否转化, 目标方向)。三大流派共用同一套情境估值，故均为"视情形而定"。"""
+    if obs.get('transform_count', 0) >= 2:
+        return (False, None)
+    quota = obs.get('quota_left') or {}
+    cur = obs.get('awak_dir')
+    tn, base_p, dir_w = ALIEN_TRANSFORM.get(ALIEN_STYLE, (3, 0.85, {'击杀': 1.0}))
+    if obs['night'] < tn or cur is None:
+        return (False, None)
+    # 转化当夜无行动：第 2 次转化要求更长的方向驻留期，避免为转化连续空转
+    min_stay = TRANSFORM_MIN_STAY + 2 * max(0, obs.get('transform_count', 0))
+    if obs['night'] - (obs.get('awak_night') or 0) < min_stay:
+        return (False, None)
+    humans, cd, night = obs['humans_alive'], obs['countdown'], obs['night']
+    aliens = set(obs.get('alien_ids') or ())
+    infected = sum(1 for t, v in obs['infected_set'].items() if v and t not in aliens)
+    exposed = obs['exposed'] or set()
+    main_dir = ALIEN_MAIN_DIR.get(ALIEN_STYLE, cur)
+
+    def value(d):
+        v = dir_w.get(d, 1.0)
+        if d != main_dir and d != cur:
+            v *= TRANSFORM_VAL['off_dir']
+        if d == '击杀':
+            if cd < 12 or humans <= 5:
+                v *= TRANSFORM_VAL['kill_press']
+            if obs['dying']:
+                v *= TRANSFORM_VAL['kill_finish']
+        elif d == '感染':
+            if night <= 5 and humans - infected >= 3:
+                v *= TRANSFORM_VAL['infect_early']
+            if infected >= 1:
+                v *= TRANSFORM_VAL['infect_overload']
+            if humans <= 4:
+                v *= TRANSFORM_VAL['infect_late']
+        elif d == '破坏':
+            if obs['net_sabotage'] < 3 and (obs.get('own_sabotage_count', 0) < 2
+                                            or obs['me_id'] in exposed):
+                v *= TRANSFORM_VAL['sab_headroom']
+            if obs['net_sabotage'] >= 5:
+                v *= TRANSFORM_VAL['sab_crowded']
+            if humans <= 4:
+                v *= TRANSFORM_VAL['sab_endgame']
+        return v
+
+    cur_v = value(cur)
+    cands = [d for d in quota if quota[d] > 0 and d != cur]
+    if not cands:
+        return (False, None)
+    best = max(cands, key=lambda d: value(d))
+    best_v = value(best)
+    if cur_v <= 0 or best_v < cur_v * TRANSFORM_GAIN_TH:
+        return (False, None)
+    gain = best_v / cur_v - TRANSFORM_GAIN_TH
+    p = min(0.98, base_p + TRANSFORM_PROB_GAIN * gain)
+    if rng.random() >= p:
+        return (False, None)
+    return (True, best)
+
 def decide_infect(obs, mem, rng, skill):
+    """感染目标选择（感染流派核心手法）：
+    - 排除异形 / 已感染者 / 濒死者（濒死再感染无边际收益）
+    - 优先公开暴露者（跳身份 / 维修暴露 —— 异形可见的合法信号）
+    - 优先信息枢纽（私聊频繁者）：感染使其当夜被抑制，直接切断人类信息网络
+    - 目标数由规则 5.4 决定：感染觉醒 2~3 名，其余 1~2 名"""
     cands = [t for t in obs['alive'] if t != obs['me_id'] and not obs['dying_set'].get(t)
              and t not in obs['alien_ids'] and not obs['infected_set'].get(t)]
     if not cands:
         return []
     def s(t):
-        v = 0.0
+        v = 1.0
         if t in obs['exposed'] or t in obs['revealed_humans']:
             v += 2.0
+        v += min(1.5, len(obs['chat_partner_count'].get(t, ())) * 0.35)
+        if t in mem.my_infected:
+            v -= 1.5   # 我曾感染过的人：被治疗后带抗体，再感染大概率被挡
         return v
     cands.sort(key=s, reverse=True)
-    n = (3 if rng.random() < 0.3 else 2) if obs.get('awak_dir') == '感染' \
-        else (2 if rng.random() < 0.3 else 1)
+    # 规则 5.4：感染觉醒 2~3 名，其余 1~2 名；感染流派取上限把治疗额度挤爆
+    if obs.get('awak_dir') == '感染':
+        n = 3 if ALIEN_INFECT_MAX.get(ALIEN_STYLE, False) else (3 if rng.random() < 0.3 else 2)
+    else:
+        n = 2 if rng.random() < 0.3 else 1
     chosen = cands[:n]
+    mem.my_infected.update(chosen)
     if rng.random() < noise_rate(skill, obs['night']):
         rng.shuffle(chosen)
     return chosen
@@ -517,6 +786,7 @@ class Game31(sim30.Game):
         self.memories = {p.id: Memory(p.id) for p in self.players}
         self._alien_scapegoat = None
         self._foreigner_targets_night = set()  # 本夜外星人攻击过的目标（濒死原因=外星人）
+        self.alien_action_dist = Counter()   # 异形当夜行动分布（出刀/感染/破坏/结茧）
         self.challenges = []           # (night, asker, target) 点名质询
         self.citations = []            # (night, speaker, target, cited) 公开引述
         self.promise_stats = Counter() # (skill, kept) -> 次数
@@ -550,6 +820,11 @@ class Game31(sim30.Game):
             treat_quota=getattr(p, 'doctor_treat', 0),
             append_left=self.engineer_append_left if p.role == '工程师' else 0,
             awak_dir=p.awak_dir,
+            awak_night=getattr(p, 'awak_night', None),
+            own_sabotage_count=getattr(p, 'alien_sabotage_count', 0),
+            teammate_dirs={tid: set(getattr(self.players[tid], 'awak_occupied', ()))
+                           for tid in getattr(p, 'teammates', [])
+                           if self.players[tid].alive},
             transform_count=p.transform_count,
             quota_left={d: self.awak_quota[d] for d in sim30.AWAK_DIRS} if p.is_alien() else {},
             teammates=list(getattr(p, 'teammates', [])),
@@ -1005,7 +1280,26 @@ class Game31(sim30.Game):
                     self.players[tgt].has_antibody = True
 
     # ---------- 覆写：异形计划（觉醒/转化/行动/scapegoat） ----------
+    def _alien_maybe_awaken(self, p):
+        """3.0 引擎侧觉醒置空：plan_night_actions 先于 run_night() 的 night+=1 执行，
+        若不置空则由引擎抢先觉醒（3.1 的觉醒策略永远不生效）。"""
+        return
+
+    def _alien_maybe_transform(self, p):
+        """3.0 引擎侧转化置空：统一由 plan_night_actions → _alien_transform31 处理，
+        避免同一夜被 3.0（alien_mode 顺序表）与 3.1（权重估值）各转化一次。"""
+        return
+
     def plan_night_actions(self):
+        # 计划阶段发生在 run_night() 的 night+=1 之前：把夜号推进到"本夜"再决策，
+        # 使觉醒/转化/外星人双刀的门槛夜数与规则文本一致（R3 双刀第6夜等）。
+        self.night += 1
+        try:
+            self._plan_night_actions()
+        finally:
+            self.night -= 1
+
+    def _plan_night_actions(self):
         acc_cnt = Counter()
         for (cn, sp, tg, grade, _) in self.accuse_claims:
             acc_cnt[tg] += 1
@@ -1024,37 +1318,14 @@ class Game31(sim30.Game):
                 elif p.awakened:
                     self._alien_transform31(p)
 
-        aliens_alive = [p for p in self.alive_aliens() if not p.dying]
-        n_infect = len([p for p in aliens_alive if p.awak_dir == '感染'])
-        for p in aliens_alive:
-            over_exposed = p.alien_sabotage_count >= 2 and p.id not in self.alien_sabotage_exposed
-            r = self.rng.random()
-            if ALIEN_STYLE in ('aggro', 'mix', 'mimic'):
-                # 极限击杀流：除非破坏觉醒且未过阈值，否则全员出刀/感染压制
-                if p.awak_dir == '破坏' and self.net_sabotage < 7 and not over_exposed:
-                    p._alien_action = '破坏'
-                elif p.awak_dir == '感染' and r < 0.6:
-                    p._alien_action = '感染'
-                else:
-                    p._alien_action = '出刀'
-            else:
-                if p.awak_dir == '破坏' and self.net_sabotage < 7 and not over_exposed:
-                    p._alien_action = '破坏'
-                elif self.countdown < 9 and len(self.alive_humans()) <= 5:
-                    p._alien_action = '出刀'
-                elif p.awak_dir == '感染':
-                    p._alien_action = '感染' if r < 0.8 else '出刀'
-                elif n_infect >= 2 and r < 0.3:
-                    p._alien_action = '感染'
-                elif r < 0.55:
-                    p._alien_action = '出刀'
-                elif r < 0.75:
-                    p._alien_action = '感染'
-                else:
-                    p._alien_action = '结茧'
-            if ALIEN_STYLE in ('balanced', 'sab') and p.id in self.alien_sabotage_exposed \
-                    and self.rng.random() < 0.3:
-                p._alien_action = '结茧'
+        # 当夜行动：三大流派共用权重表（感染为显式权重项），情境系数视局势连续调节
+        for p in self.alive_aliens():
+            if p.dying:
+                continue
+            mem = self.memories[p.id]
+            obs = self._base_obs(p)
+            p._alien_action = decide_alien_action(obs, mem, self.rng, self.skills[p.id])
+            self.alien_action_dist[p._alien_action] += 1
 
         for p in self.alive_players():
             if p.role == '武装船员' and p.bullets > 0 and not p.dying:
@@ -1068,20 +1339,14 @@ class Game31(sim30.Game):
             p._foreigner_action = self._foreigner_plan31(p)
 
     def _alien_awaken31(self, p):
-        avail = [d for d in sim30.AWAK_DIRS if self.awak_quota[d] > 0]
-        if not avail:
+        """觉醒方向：流派基础权重 × 情境系数 加权抽样（视情形而定，非固定顺序）。"""
+        mem = self.memories[p.id]
+        obs = self._base_obs(p)
+        d = decide_awaken_dir(obs, mem, self.rng, self.skills[p.id])
+        if d is None:
             return
-        teammates_dirs = set()
-        for tid in getattr(p, 'teammates', []):
-            tp = self.players[tid]
-            if tp.alive:
-                teammates_dirs |= tp.awak_occupied
-        preferred = [d for d in avail if d not in teammates_dirs] or avail
-        order = list(ALIEN_AWAKEN_ORDER.get(ALIEN_STYLE, ['感染', '击杀', '破坏']))
-        if ALIEN_STYLE == 'mix' and '破坏' in teammates_dirs:
-            order = ['感染', '击杀', '破坏']   # 已有队友占破坏 → 自己走感染/击杀
-        d = next((x for x in order if x in preferred), preferred[0])
-        d = self._guard(p, d, preferred, 'awaken')
+        avail = [x for x in sim30.AWAK_DIRS if self.awak_quota[x] > 0]
+        d = self._guard(p, d, avail, 'awaken')
         if self._acquire_awak(p, d):
             p.awakened = True
             p.awak_dir = d
@@ -1090,17 +1355,12 @@ class Game31(sim30.Game):
             self.announce_msg("今晚有 1 只异形觉醒。")
 
     def _alien_transform31(self, p):
-        if p.transform_count >= 2:
-            return
-        targets = [d for d in sim30.AWAK_DIRS if d != p.awak_dir and self.awak_quota[d] > 0]
-        if not targets:
-            return
-        tn, tp_, dirs = ALIEN_TRANSFORM.get(ALIEN_STYLE, (4, 0.75, ['击杀']))
-        if self.night >= tn and self.rng.random() < tp_:
-            for nd in dirs:
-                if nd in targets and nd != p.awak_dir:
-                    self._transform(p, nd)
-                    break
+        """转化：目标方向情境价值显著高于当前方向才转（转化当夜无行动，须值回票价）。"""
+        mem = self.memories[p.id]
+        obs = self._base_obs(p)
+        do_tf, nd = decide_transform(obs, mem, self.rng, self.skills[p.id])
+        if do_tf and nd is not None and self.awak_quota.get(nd, 0) > 0:
+            self._transform(p, nd)
 
     def _foreigner_plan31(self, p):
         humans_alive = len(self.alive_humans())
@@ -1165,20 +1425,10 @@ class Game31(sim30.Game):
             mem = self.memories[p.id]
             obs = self._base_obs(p)
             if p.is_alien():
-                if ALIEN_STYLE == 'mimic':
-                    # 拟态流：只重复公开指控最多目标（混入人群），无人被指控则沉默
-                    herd = Counter()
-                    for (n2, sp2, tg2, gr2, f2) in self.accuse_claims:
-                        if n2 >= self.night - 1:
-                            herd[tg2] += 1
-                    herd_tgts = [t for t in herd if self.players[t].alive
-                                 and not self.players[t].is_alien()
-                                 and herd[t] >= 2 and t != p.id]
-                    tgt = herd_tgts[0] if herd_tgts else None
-                else:
-                    sg = self._alien_scapegoat
-                    tgt = sg if (sg is not None and sg != p.id and self.players[sg].alive) \
-                        else _top_eff(obs, mem, exclude=set(obs['teammates']) | {p.id}, rng=self.rng)
+                # 三大流派共用：全队把火力压到 scapegoat（公开指控最多的非异形）
+                sg = self._alien_scapegoat
+                tgt = sg if (sg is not None and sg != p.id and self.players[sg].alive) \
+                    else _top_eff(obs, mem, exclude=set(obs['teammates']) | {p.id}, rng=self.rng)
                 grade, is_fake = 0, True
             else:
                 tgt = _top_eff(obs, mem)

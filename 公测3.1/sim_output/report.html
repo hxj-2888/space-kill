@@ -9,94 +9,95 @@ svg{background:#fafbff;border:1px solid #e3e6f0;border-radius:8px}</style></head
 <h1>太空杀 公测3.1 — 高水平玩家认知模型模拟报告</h1>
 <p>局数 <b>5000</b> ｜ 种子 20260829 ｜ 规则：公测3.0（裁判零改动）｜ 技能分布 55%中 / 20%高 / 25%新手（每人固定一档）｜ 情绪 + 追责账本 + 私聊可信度加权</p>
 <h2>① 阵营胜率 + 95% CI（bootstrap 2000 次）</h2><table><tr><th>阵营</th><th>胜率</th><th>95% CI</th></tr>
-<tr><td>人类</td><td>44.2%</td><td>[42.9%, 45.6%]</td></tr>
-<tr><td>异形</td><td>30.1%</td><td>[28.9%, 31.4%]</td></tr>
-<tr><td>外星人</td><td>25.5%</td><td>[24.3%, 26.8%]</td></tr>
-<tr><td>护栏判平(非规则)</td><td>0.1%</td><td>[0.0%, 0.2%]</td></tr>
+<tr><td>人类</td><td>48.3%</td><td>[46.9%, 49.7%]</td></tr>
+<tr><td>异形</td><td>24.7%</td><td>[23.6%, 26.0%]</td></tr>
+<tr><td>外星人</td><td>27.0%</td><td>[25.7%, 28.3%]</td></tr>
+<tr><td>护栏判平(非规则)</td><td>0.1%</td><td>[0.0%, 0.1%]</td></tr>
 </table>
 <h2>② 技能档 × 阵营胜率（收敛差异验证）</h2><table><tr><th>技能档</th><th>阵营</th><th>样本</th><th>胜率</th><th>95% CI</th></tr>
-<tr><td>expert</td><td>异形</td><td>3029</td><td>30.2%</td><td>[28.6%, 31.9%]</td></tr>
-<tr><td>expert</td><td>外星人</td><td>978</td><td>23.9%</td><td>[21.2%, 26.7%]</td></tr>
-<tr><td>expert</td><td>人类</td><td>11256</td><td>44.0%</td><td>[43.1%, 44.9%]</td></tr>
-<tr><td>mid</td><td>异形</td><td>8263</td><td>30.3%</td><td>[29.2%, 31.2%]</td></tr>
-<tr><td>mid</td><td>外星人</td><td>2718</td><td>26.4%</td><td>[24.8%, 28.0%]</td></tr>
-<tr><td>mid</td><td>人类</td><td>30043</td><td>44.3%</td><td>[43.7%, 44.8%]</td></tr>
-<tr><td>novice</td><td>异形</td><td>3708</td><td>29.9%</td><td>[28.4%, 31.4%]</td></tr>
-<tr><td>novice</td><td>外星人</td><td>1304</td><td>24.9%</td><td>[22.5%, 27.3%]</td></tr>
-<tr><td>novice</td><td>人类</td><td>13701</td><td>44.3%</td><td>[43.4%, 45.1%]</td></tr>
+<tr><td>expert</td><td>异形</td><td>2960</td><td>25.6%</td><td>[24.0%, 27.2%]</td></tr>
+<tr><td>expert</td><td>外星人</td><td>1026</td><td>23.7%</td><td>[21.2%, 26.2%]</td></tr>
+<tr><td>expert</td><td>人类</td><td>10910</td><td>48.7%</td><td>[47.8%, 49.6%]</td></tr>
+<tr><td>mid</td><td>异形</td><td>8305</td><td>24.6%</td><td>[23.7%, 25.5%]</td></tr>
+<tr><td>mid</td><td>外星人</td><td>2758</td><td>27.2%</td><td>[25.5%, 28.9%]</td></tr>
+<tr><td>mid</td><td>人类</td><td>30312</td><td>48.1%</td><td>[47.5%, 48.7%]</td></tr>
+<tr><td>novice</td><td>异形</td><td>3735</td><td>24.2%</td><td>[22.9%, 25.6%]</td></tr>
+<tr><td>novice</td><td>外星人</td><td>1216</td><td>29.3%</td><td>[26.7%, 31.9%]</td></tr>
+<tr><td>novice</td><td>人类</td><td>13778</td><td>48.2%</td><td>[47.4%, 49.0%]</td></tr>
 </table>
 <p class="note">判据：expert &gt; mid &gt; novice（同阵营内）——档位差异证明技能/收敛模型生效，非全员同优。</p>
 <h2>③ 透视违规检测</h2>
 <p>身份类决策（投票/击杀/查验/枪击）采样；判违规：准确率 − 平均后验 &gt; 5pp 且 z &gt; 2（n≥50）。</p>
 <table><tr><th>阵营</th><th>动作</th><th>技能档</th><th>n</th><th>准确率</th><th>平均后验置信</th><th>z</th><th>判定</th></tr>
-<tr><td>异形</td><td>kill</td><td>expert</td><td>14465</td><td>1.3%</td><td>24.0%</td><td>-64.06</td><td class="ok">正常</td></tr>
-<tr><td>异形</td><td>kill</td><td>mid</td><td>38563</td><td>1.2%</td><td>24.0%</td><td>-104.73</td><td class="ok">正常</td></tr>
-<tr><td>异形</td><td>kill</td><td>novice</td><td>17295</td><td>1.3%</td><td>24.1%</td><td>-70.23</td><td class="ok">正常</td></tr>
-<tr><td>异形</td><td>vote</td><td>expert</td><td>12303</td><td>12.0%</td><td>24.6%</td><td>-32.57</td><td class="ok">正常</td></tr>
-<tr><td>异形</td><td>vote</td><td>mid</td><td>33233</td><td>11.7%</td><td>24.6%</td><td>-54.95</td><td class="ok">正常</td></tr>
-<tr><td>异形</td><td>vote</td><td>novice</td><td>14853</td><td>12.2%</td><td>24.9%</td><td>-35.80</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>check</td><td>expert</td><td>2604</td><td>20.1%</td><td>29.3%</td><td>-10.27</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>check</td><td>mid</td><td>7265</td><td>21.9%</td><td>29.5%</td><td>-14.26</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>check</td><td>novice</td><td>3379</td><td>22.0%</td><td>29.4%</td><td>-9.34</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>kill</td><td>expert</td><td>3046</td><td>12.1%</td><td>14.2%</td><td>-3.29</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>kill</td><td>mid</td><td>8610</td><td>14.3%</td><td>14.9%</td><td>-1.62</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>kill</td><td>novice</td><td>4175</td><td>16.2%</td><td>15.4%</td><td>1.46</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>vote</td><td>expert</td><td>5035</td><td>41.8%</td><td>41.4%</td><td>0.61</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>vote</td><td>mid</td><td>14190</td><td>43.2%</td><td>42.6%</td><td>1.39</td><td class="ok">正常</td></tr>
-<tr><td>外星人</td><td>vote</td><td>novice</td><td>6722</td><td>42.0%</td><td>42.2%</td><td>-0.37</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>check</td><td>expert</td><td>10333</td><td>22.6%</td><td>27.7%</td><td>-11.49</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>check</td><td>mid</td><td>28248</td><td>22.3%</td><td>27.2%</td><td>-18.27</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>check</td><td>novice</td><td>12642</td><td>22.4%</td><td>27.5%</td><td>-12.73</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>shoot</td><td>expert</td><td>77</td><td>61.0%</td><td>84.2%</td><td>-5.57</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>shoot</td><td>mid</td><td>193</td><td>66.8%</td><td>85.8%</td><td>-7.55</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>shoot</td><td>novice</td><td>86</td><td>74.4%</td><td>90.0%</td><td>-4.83</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>vote</td><td>expert</td><td>39080</td><td>30.0%</td><td>40.1%</td><td>-40.71</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>vote</td><td>mid</td><td>104653</td><td>30.4%</td><td>40.0%</td><td>-63.35</td><td class="ok">正常</td></tr>
-<tr><td>人类</td><td>vote</td><td>novice</td><td>47383</td><td>30.5%</td><td>40.3%</td><td>-43.29</td><td class="ok">正常</td></tr>
+<tr><td>异形</td><td>kill</td><td>expert</td><td>12133</td><td>1.1%</td><td>23.4%</td><td>-58.10</td><td class="ok">正常</td></tr>
+<tr><td>异形</td><td>kill</td><td>mid</td><td>31705</td><td>1.2%</td><td>23.1%</td><td>-92.66</td><td class="ok">正常</td></tr>
+<tr><td>异形</td><td>kill</td><td>novice</td><td>12873</td><td>1.0%</td><td>23.4%</td><td>-60.09</td><td class="ok">正常</td></tr>
+<tr><td>异形</td><td>vote</td><td>expert</td><td>12336</td><td>11.4%</td><td>24.6%</td><td>-34.05</td><td class="ok">正常</td></tr>
+<tr><td>异形</td><td>vote</td><td>mid</td><td>34759</td><td>11.9%</td><td>24.7%</td><td>-55.24</td><td class="ok">正常</td></tr>
+<tr><td>异形</td><td>vote</td><td>novice</td><td>15855</td><td>11.7%</td><td>24.8%</td><td>-38.07</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>check</td><td>expert</td><td>2749</td><td>19.1%</td><td>29.5%</td><td>-11.99</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>check</td><td>mid</td><td>7282</td><td>20.6%</td><td>29.6%</td><td>-16.83</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>check</td><td>novice</td><td>3331</td><td>20.5%</td><td>29.5%</td><td>-11.33</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>kill</td><td>expert</td><td>3894</td><td>12.9%</td><td>13.9%</td><td>-1.78</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>kill</td><td>mid</td><td>10884</td><td>14.6%</td><td>14.6%</td><td>-0.03</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>kill</td><td>novice</td><td>4945</td><td>16.4%</td><td>15.0%</td><td>2.74</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>vote</td><td>expert</td><td>5879</td><td>39.7%</td><td>40.8%</td><td>-1.76</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>vote</td><td>mid</td><td>15985</td><td>41.0%</td><td>41.3%</td><td>-0.76</td><td class="ok">正常</td></tr>
+<tr><td>外星人</td><td>vote</td><td>novice</td><td>7215</td><td>41.2%</td><td>42.1%</td><td>-1.65</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>check</td><td>expert</td><td>11117</td><td>21.6%</td><td>26.9%</td><td>-12.51</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>check</td><td>mid</td><td>30259</td><td>20.9%</td><td>27.2%</td><td>-24.71</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>check</td><td>novice</td><td>14082</td><td>21.2%</td><td>27.1%</td><td>-15.62</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>shoot</td><td>expert</td><td>86</td><td>62.8%</td><td>86.1%</td><td>-6.27</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>shoot</td><td>mid</td><td>231</td><td>71.4%</td><td>88.1%</td><td>-7.81</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>shoot</td><td>novice</td><td>124</td><td>64.5%</td><td>85.9%</td><td>-6.83</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>vote</td><td>expert</td><td>44634</td><td>28.9%</td><td>39.6%</td><td>-46.18</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>vote</td><td>mid</td><td>122625</td><td>29.1%</td><td>39.7%</td><td>-75.47</td><td class="ok">正常</td></tr>
+<tr><td>人类</td><td>vote</td><td>novice</td><td>54879</td><td>29.7%</td><td>39.9%</td><td>-49.14</td><td class="ok">正常</td></tr>
 </table>
 <p class="ok">✔ 未检测到透视：所有决策准确率均未显著超过其合法信念上界（信息隔离有效）。</p>
 <p class="note">隔离校验：决策自由函数签名不含裁判对象；3 条 3.0 非公开通道已移除；私聊内容仅写入双方 Memory；expert 表现低于上帝最优上界（异形真实身份可全知，玩家后验稳定 &lt; 1）。</p>
 <h2>④ 收敛曲线（噪声率随夜数衰减 → 各档平台期）</h2>
 <svg width="1000" height="240" viewBox="0 0 1000 240">
-<line x1="40" y1="200" x2="960" y2="200" stroke="#999"/><line x1="40" y1="40" x2="40" y2="200" stroke="#999"/><polyline points="193,40 346,46 500,118 653,103 806,149 960,200" fill="none" stroke="#3949ab" stroke-width="2"/>
-<text x="189" y="218" font-size="11" fill="#666">2</text>
-<text x="342" y="218" font-size="11" fill="#666">3</text>
-<text x="496" y="218" font-size="11" fill="#666">4</text>
-<text x="649" y="218" font-size="11" fill="#666">5</text>
-<text x="802" y="218" font-size="11" fill="#666">6</text>
-<text x="956" y="218" font-size="11" fill="#666">7</text>
+<line x1="40" y1="200" x2="960" y2="200" stroke="#999"/><line x1="40" y1="40" x2="40" y2="200" stroke="#999"/><polyline points="171,40 302,105 434,77 565,118 697,57 828,161 959,200" fill="none" stroke="#3949ab" stroke-width="2"/>
+<text x="167" y="218" font-size="11" fill="#666">2</text>
+<text x="298" y="218" font-size="11" fill="#666">3</text>
+<text x="430" y="218" font-size="11" fill="#666">4</text>
+<text x="561" y="218" font-size="11" fill="#666">5</text>
+<text x="693" y="218" font-size="11" fill="#666">6</text>
+<text x="824" y="218" font-size="11" fill="#666">7</text>
+<text x="955" y="218" font-size="11" fill="#666">8</text>
 </svg>
 <p class="note">噪声率 = (base + 0.25·panic)·e^(−夜/τ) + floor。三档 τ/floor 不同 → 收敛速度与上限不同；panic 注入使倒计时危机期噪声回升（情绪驱动偏差）。</p>
 <h2>⑤ 信念演化（第 0 局 · expert 人类对存活异形的平均后验）</h2>
 <svg width="1000" height="240" viewBox="0 0 1000 240">
-<polyline points="40,152 500,163 960,159" fill="none" stroke="#c62828" stroke-width="2"/>
-<polyline points="40,168 500,158 960,167" fill="none" stroke="#e65100" stroke-width="2"/>
-<polyline points="40,161 500,160 960,173" fill="none" stroke="#6a1b9a" stroke-width="2"/>
+<polyline points="40,158 346,166 653,166 960,165" fill="none" stroke="#c62828" stroke-width="2"/>
+<polyline points="40,160 346,149" fill="none" stroke="#e65100" stroke-width="2"/>
+<polyline points="40,161 346,162 653,154 960,151" fill="none" stroke="#6a1b9a" stroke-width="2"/>
 <line x1="40" y1="200" x2="960" y2="200" stroke="#999"/><line x1="40" y1="40" x2="40" y2="200" stroke="#999"/>
 </svg>
 <p class="note">expert 后验应随信息积累缓升且稳定 &lt; 1.0（绝不逼近确定=绝不透视）；真实异形身份只有裁判知道（上帝最优上界=1.0，仅作对照）。</p>
 <h2>⑥ 情绪轨迹（第 0 局 · 全体存活者均值）</h2>
 <svg width="1000" height="240" viewBox="0 0 1000 240">
-<polyline points="40,149 193,138 346,126 500,118 653,106 806,117 960,117" fill="none" stroke="#e65100" stroke-width="2"/>
+<polyline points="40,150 193,138 346,131 500,130 653,133 806,132 960,120" fill="none" stroke="#e65100" stroke-width="2"/>
 <text x="870" y="50" font-size="12" fill="#e65100">fear</text>
-<polyline points="40,197 193,184 346,173 500,167 653,161 806,168 960,168" fill="none" stroke="#c62828" stroke-width="2"/>
+<polyline points="40,197 193,184 346,165 500,156 653,152 806,137 960,142" fill="none" stroke="#c62828" stroke-width="2"/>
 <text x="870" y="70" font-size="12" fill="#c62828">anger</text>
-<polyline points="40,200 193,200 346,200 500,200 653,152 806,98 960,88" fill="none" stroke="#6a1b9a" stroke-width="2"/>
+<polyline points="40,200 193,200 346,200 500,200 653,200 806,200 960,200" fill="none" stroke="#6a1b9a" stroke-width="2"/>
 <text x="870" y="90" font-size="12" fill="#6a1b9a">panic</text>
 <line x1="40" y1="200" x2="960" y2="200" stroke="#999"/><line x1="40" y1="40" x2="40" y2="200" stroke="#999"/>
 </svg>
 <p class="note">事件驱动：被投票→fear/anger↑；高信任对象死亡→anger↑；倒计时≤8 或人数劣势→panic↑（噪声随之↑）；查验确证异形→confidence↑。情绪非纯随机，全部由对局事件触发。</p>
 <h2>⑦ 私聊效果分析</h2>
-<p>私聊总次数 <b>89670</b>；有效私聊（48h 内对私聊对象产生行为变动）<b>52855</b> 次 → <b>有效率 58.9%</b>（裁判层判定，与 3.0 口径一致）。</p>
+<p>私聊总次数 <b>96428</b>；有效私聊（48h 内对私聊对象产生行为变动）<b>58069</b> 次 → <b>有效率 60.2%</b>（裁判层判定，与 3.0 口径一致）。</p>
 <p class="note">私聊内容仅双方 Memory 可见（信息不对称战场）；异形借私聊散布假疑点，但说谎前科会进入追责账本（可信度 0.5^n 衰减），欺骗有长期代价。</p>
 <h2>⑧ 信息博弈指标</h2>
 <h3>承诺兑现率（按技能档，私聊承诺→次日票型核验）</h3>
 <table><tr><th>技能档</th><th>兑现</th><th>背约</th><th>兑现率</th></tr>
-<tr><td>expert</td><td>10886</td><td>22170</td><td>32.9%</td></tr>
-<tr><td>mid</td><td>28977</td><td>59924</td><td>32.6%</td></tr>
-<tr><td>novice</td><td>13377</td><td>28522</td><td>31.9%</td></tr>
+<tr><td>expert</td><td>11846</td><td>22606</td><td>34.4%</td></tr>
+<tr><td>mid</td><td>33670</td><td>62831</td><td>34.9%</td></tr>
+<tr><td>novice</td><td>15219</td><td>29653</td><td>33.9%</td></tr>
 </table>
-<p>点名质询：<b>49205</b> 次，命中异形率 <b>28.3%</b>（存活异形基率约 20%，显著高于基率=质询有信息价值）。公开引述 <b>26929</b> 次（私聊情报公开化，引述失实将被追责）。</p>
+<p>点名质询：<b>56629</b> 次，命中异形率 <b>27.0%</b>（存活异形基率约 20%，显著高于基率=质询有信息价值）。公开引述 <b>32010</b> 次（私聊情报公开化，引述失实将被追责）。</p>
 <p class="note">判据：expert 兑现率应显著高于 novice——验证追责账本（背约→信任崩塌）是否塑造行为。</p>
 <h2>⑧b 采样与复现</h2>
 <p>每局独立 RNG 流（种子 20260829 + game_id）；裁判完整重建、无跨局污染；追责账本每局重置；输出仅写 sim_output/ 隔离目录；config.json 为完整参数快照。</p>
