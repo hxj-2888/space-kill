@@ -14,7 +14,7 @@ import sys
 import docx
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC2 = os.path.join(ROOT, '公测2.0')
+SRC2 = os.path.join(ROOT, '剧情')
 SRC3 = os.path.join(ROOT, '公测3.0')
 OUT = os.path.join(ROOT, 'site')
 
@@ -22,11 +22,11 @@ DOCS = [
     # (来源路径, 输出文件名, 栏目, 短标题, 副标题, 转换器)
     (os.path.join('公测3.0', '太空杀_公测3.0_规则.md'), 'rules.html', 'rules',
      '游戏规则', '三阵营对抗 · 公测 3.0 正式规则', 'md'),
-    (os.path.join('公测2.0', '人类胜利线.docx'), 'story-human.html', 'story',
+    (os.path.join('剧情', '人类胜利线.docx'), 'story-human.html', 'story',
      '星途归航 · 人类胜利线', '剧情 · 最终版', 'docx'),
-    (os.path.join('公测2.0', '外星人胜利线.docx'), 'story-alien.html', 'story',
+    (os.path.join('剧情', '外星人胜利线.docx'), 'story-alien.html', 'story',
      '星途归航 · 外星人胜利线', '剧情 · 修订版', 'docx'),
-    (os.path.join('公测2.0', '异形胜利线.docx'), 'story-xeno.html', 'story',
+    (os.path.join('剧情', '异形胜利线.docx'), 'story-xeno.html', 'story',
      '星途归航 · 异形胜利线', '剧情', 'docx'),
 ]
 

@@ -2676,12 +2676,12 @@ if __name__ == '__main__':
     N = 1000
     print("运行 %d 局高水平模拟 (公测1.0)..." % N)
     stats_high = run_simulation(N, 'high', seed=20260821)
-    report_path = "c:/Users/ASUS/CodeBuddy/20260820234047/report_high_1000_ob10.md"
+    report_path = "./report_high_1000_ob10.md"
 
     # 随机基线（用于数值vs推理平衡对照）
     print("运行 %d 局随机基线..." % N)
     stats_rand = run_simulation(N, 'random', seed=99)
-    report_path2 = "c:/Users/ASUS/CodeBuddy/20260820234047/report_random_1000_ob10.md"
+    report_path2 = "./report_random_1000_ob10.md"
     write_report(stats_rand, "随机基线玩家", report_path2)
     print("随机基线报告：", report_path2)
 
@@ -2690,7 +2690,7 @@ if __name__ == '__main__':
     print("报告已生成：", report_path)
 
     # HTML 报告（提示词重要指标可视化）
-    html_path = "c:/Users/ASUS/CodeBuddy/20260820234047/report_high_1000_ob10.html"
+    html_path = "./report_high_1000_ob10.html"
     write_report_html(stats_high, "高水平玩家（私聊+讨论+追责博弈）", html_path, compare=stats_rand)
     print("HTML 报告：", html_path)
     print("耗时 %.1fs" % (time.time() - t0))

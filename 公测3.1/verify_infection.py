@@ -52,7 +52,7 @@ check('I2 外星人第3夜可感染/第4夜免疫', r3 == 'infected' and r4 == '
 # I3 生化医师治疗初始 2
 g = fresh()
 doc = [p for p in g.players if p.role == '生化医师'][0]
-check('I3 生化初始治疗=2', doc.doctor_treat == 2, 'init=%d' % doc.doctor_treat)
+check('I3 生化初始治疗=1(平衡削弱)', doc.doctor_treat == 1, 'init=%d' % doc.doctor_treat)
 
 # I4 医生互斥：濒死+感染同场，医生只救援不治疗
 g = fresh(); g.night = 2

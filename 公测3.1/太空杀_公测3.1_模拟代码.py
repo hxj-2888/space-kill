@@ -503,11 +503,11 @@ class Game31(sim30.Game):
     def __init__(self, rng, game_id, strategy='high', perspective_log=None, trace=None):
         super().__init__(rng, game_id, strategy)
         self.countdown = INIT_COUNTDOWN  # 公测3.1 平衡：覆盖裁判层 21 昼夜为 24
-        # I3 生化医师感染治疗初始 2 次（裁判层为 1；第2/3/4夜仍各+1 → 全局5）
+        # I3-改 生化医师感染治疗初始 1 次（平衡削弱；第2/3/4夜仍各+1 → 全局4）
         # S2 生化医师不再天生免疫感染（裁判层曾置 has_antibody=True；治疗赋予的抗体仍有效）
         for p in self.players:
             if p.role == '生化医师':
-                p.doctor_treat = 2
+                p.doctor_treat = 1
                 p.has_antibody = False
         self.perspective_log = perspective_log if perspective_log is not None else []
         self.trace = trace if trace is not None else None
@@ -981,7 +981,12 @@ class Game31(sim30.Game):
                     p.infection = 0
             return
         dying_targets = [q for q in self.alive_players() if q.dying]
-        if dying_targets and p.doctor_rescue > 0 and p.role in ('救援医师', '临时医生'):
+        inf_all = [q for q in self.alive_players() if q.infection >= 1]
+        # 感染 v3 适配：感染第2夜死使治疗价值上升——感染人数>=2 或 濒死仅1人且感染更多时优先治疗
+        treat_first = (not dying_targets and inf_all) or \
+                      (len(inf_all) >= 2 and len(dying_targets) <= 1)
+        if dying_targets and p.doctor_rescue > 0 and p.role in ('救援医师', '临时医生') \
+                and not treat_first:
             tgt = self.ai_pick_rescue(p, dying_targets)
             if tgt is not None and p.doctor_rescue > 0:
                 self.players[tgt].dying = False

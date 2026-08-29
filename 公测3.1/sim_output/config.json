@@ -2,7 +2,7 @@
   "version": "公测3.1 认知模型（信息集最优+情绪+追责）",
   "engine": "公测3.0 裁判（规则零改动，机制核验 18/18）",
   "rules": "公测3.0 规则.md（R1~R11）",
-  "n_games": 1000,
+  "n_games": 5000,
   "seed": 20260829,
   "skill_dist": {
     "expert": 0.2,
@@ -50,41 +50,41 @@
   },
   "infogame": {
     "promise_by_skill": {
-      "expert|False": 4349,
-      "expert|True": 2036,
-      "mid|False": 12209,
-      "mid|True": 5789,
-      "novice|False": 5735,
-      "novice|True": 2574
+      "expert|False": 22170,
+      "expert|True": 10886,
+      "mid|False": 59924,
+      "mid|True": 28977,
+      "novice|False": 28522,
+      "novice|True": 13377
     },
-    "challenges": 9757,
-    "challenge_hit_rate": 27.1,
-    "citations": 5403
+    "challenges": 49205,
+    "challenge_hit_rate": 28.3,
+    "citations": 26929
   },
   "results_summary": {
     "win_rates_ci": {
       "human": [
-        46.2,
-        43.0,
-        49.3
+        44.22,
+        42.9,
+        45.6
       ],
       "alien": [
-        28.9,
-        26.2,
-        31.7
+        30.14,
+        28.86,
+        31.38
       ],
       "foreigner": [
-        24.9,
-        22.3,
-        27.6
+        25.54,
+        24.32,
+        26.78
       ],
       "draw": [
-        0.0,
-        0.0,
-        0.0
+        0.1,
+        0.02,
+        0.2
       ]
     },
     "perspective_violations": 0,
-    "chat_effective_rate": 58.3
+    "chat_effective_rate": 58.9
   }
 }
