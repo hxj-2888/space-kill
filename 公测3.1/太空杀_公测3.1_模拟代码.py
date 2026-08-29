@@ -237,6 +237,7 @@ LR = dict(
 # ---- 策略调参旋钮（tune.py 可修改）----
 VOTE_THRESHOLD = 0.35          # 人类投票的证据阈值（fear 会降低它）
 ANNOUNCE_INJURY = False        # 濒死公告开关（False=濒死不公告，公告最小信息原则）
+INIT_COUNTDOWN = 24.0          # 公测3.1 平衡：初始倒计时 21→24 昼夜
 TRUSTED_LR = 5.0               # grade-3 可信广播的似然比（调优定版：25 会令人类胜率超 55%）
 ORDINARY_LR = 1.12             # 普通指控似然比
 ALIEN_TRANSFORM_NIGHT = 3      # 异形感染→击杀 转化最早夜（调优定版）
@@ -500,6 +501,7 @@ class Game31(sim30.Game):
 
     def __init__(self, rng, game_id, strategy='high', perspective_log=None, trace=None):
         super().__init__(rng, game_id, strategy)
+        self.countdown = INIT_COUNTDOWN  # 公测3.1 平衡：覆盖裁判层 21 昼夜为 24
         self.perspective_log = perspective_log if perspective_log is not None else []
         self.trace = trace if trace is not None else None
         self.noise_applied = Counter()

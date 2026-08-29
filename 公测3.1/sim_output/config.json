@@ -49,33 +49,33 @@
   },
   "infogame": {
     "promise_by_skill": {
-      "expert|False": 4454,
-      "expert|True": 2100,
-      "mid|False": 12070,
-      "mid|True": 5972,
-      "novice|False": 5741,
-      "novice|True": 2648
+      "expert|False": 4285,
+      "expert|True": 2098,
+      "mid|False": 12259,
+      "mid|True": 5965,
+      "novice|False": 5669,
+      "novice|True": 2673
     },
-    "challenges": 9857,
-    "challenge_hit_rate": 28.9,
-    "citations": 5526
+    "challenges": 9883,
+    "challenge_hit_rate": 26.6,
+    "citations": 5435
   },
   "results_summary": {
     "win_rates_ci": {
       "human": [
-        47.3,
-        44.2,
-        50.4
+        44.8,
+        41.7,
+        48.0
       ],
       "alien": [
-        29.5,
-        26.7,
-        32.3
+        30.3,
+        27.3,
+        33.3
       ],
       "foreigner": [
-        23.2,
-        20.7,
-        25.8
+        24.9,
+        22.4,
+        27.7
       ],
       "draw": [
         0.0,
@@ -84,6 +84,6 @@
       ]
     },
     "perspective_violations": 0,
-    "chat_effective_rate": 59.1
+    "chat_effective_rate": 58.8
   }
 }
