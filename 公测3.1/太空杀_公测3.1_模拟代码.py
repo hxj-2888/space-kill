@@ -502,6 +502,10 @@ class Game31(sim30.Game):
     def __init__(self, rng, game_id, strategy='high', perspective_log=None, trace=None):
         super().__init__(rng, game_id, strategy)
         self.countdown = INIT_COUNTDOWN  # 公测3.1 平衡：覆盖裁判层 21 昼夜为 24
+        # I3 生化医师感染治疗初始 2 次（裁判层为 1；第2/3/4夜仍各+1 → 全局5）
+        for p in self.players:
+            if p.role == '生化医师':
+                p.doctor_treat = 2
         self.perspective_log = perspective_log if perspective_log is not None else []
         self.trace = trace if trace is not None else None
         self.noise_applied = Counter()
@@ -846,6 +850,20 @@ class Game31(sim30.Game):
             return base or self.rng.random() < 0.2
         return base
 
+    # ---------- 覆写：感染（I1 感染觉醒第2夜死 / I2 外星人第4晚起感染免疫） ----------
+    def apply_infection(self, target_id, src_id):
+        t = self.players[target_id]
+        # I2 外星人削弱：第 4 晚起感染免疫（此前已感染的仍按原死亡夜结算）
+        if t.is_foreigner() and self.night >= 4:
+            return 'immune'
+        res = super().apply_infection(target_id, src_id)
+        if res == 'infected':
+            # I1 感染觉醒增强：感染觉醒异形施加的感染 → 第2夜死亡（基础为第3夜）
+            src = self.players[src_id]
+            if src.is_alien() and src.awakened and src.awak_dir == '感染':
+                t.infection_death_night = self.night + 1
+        return res
+
     def apply_harm(self, target_id, cause):
         res = super().apply_harm(target_id, cause)
         if res == 'dying':
@@ -889,6 +907,8 @@ class Game31(sim30.Game):
 
     # ---------- 覆写：步骤8 医生行动（F3 对齐：濒死自救消耗救援额度，额度 0 无法自救） ----------
     def _doctor_act(self, p):
+        # I4 消歧：每名医生每晚仅一记出手——救援(濒死)与治疗(感染)互斥，出手后当晚结束。
+        # 无救援出手（无濒死 / 无额度 / 该医生无救援他人能力如生化）→ 落入治疗分支。
         if p.dying:
             if p.doctor_rescue > 0:
                 p.doctor_rescue -= 1
@@ -897,16 +917,15 @@ class Game31(sim30.Game):
                     p.infection = 0
             return
         dying_targets = [q for q in self.alive_players() if q.dying]
-        if dying_targets and p.doctor_rescue > 0:
-            if p.role == '救援医师' or p.role == '临时医生':
-                tgt = self.ai_pick_rescue(p, dying_targets)
-                if tgt is not None and p.doctor_rescue > 0:
-                    self.players[tgt].dying = False
-                    p.doctor_rescue -= 1
-                    if self.players[tgt].infection > 0 and p.role == '生化医师':
-                        self.players[tgt].infection = 0
-                        self.players[tgt].has_antibody = True
-            return
+        if dying_targets and p.doctor_rescue > 0 and p.role in ('救援医师', '临时医生'):
+            tgt = self.ai_pick_rescue(p, dying_targets)
+            if tgt is not None and p.doctor_rescue > 0:
+                self.players[tgt].dying = False
+                p.doctor_rescue -= 1
+                if self.players[tgt].infection > 0 and p.role == '生化医师':
+                    self.players[tgt].infection = 0
+                    self.players[tgt].has_antibody = True
+            return  # 救援出手 → 当晚结束（互斥）
         inf_targets = [q for q in self.alive_players() if q.infection >= 1]
         if inf_targets and p.doctor_treat > 0:
             tgt = self.ai_pick_infect_treat(p, inf_targets)
@@ -1409,6 +1428,7 @@ def main():
             'removed_illegal_channels': ['_protect_count', 'attacked_history→保护方', 'exposed→人类观测'],
             'perspective_detection': '身份类决策 acc vs 后验置信，z>2 且差>5pp 判违规',
         'focus_fire': '异形协调行动：同夜不重复指定目标；第5夜起可自由选择补刀（濒死再受击直接死亡）',
+        'infection_v3': '感染觉醒→第2夜死亡；外星人第4晚起感染免疫；生化治疗初始2(全局5)；医生救援/治疗每晚一人互斥',
         },
     }
 

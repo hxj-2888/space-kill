@@ -45,45 +45,46 @@
       "exposed→人类观测"
     ],
     "perspective_detection": "身份类决策 acc vs 后验置信，z>2 且差>5pp 判违规",
-    "focus_fire": "异形协调行动：同夜不重复指定目标；第5夜起可自由选择补刀（濒死再受击直接死亡）"
+    "focus_fire": "异形协调行动：同夜不重复指定目标；第5夜起可自由选择补刀（濒死再受击直接死亡）",
+    "infection_v3": "感染觉醒→第2夜死亡；外星人第4晚起感染免疫；生化治疗初始2(全局5)；医生救援/治疗每晚一人互斥"
   },
   "infogame": {
     "promise_by_skill": {
-      "expert|False": 4285,
-      "expert|True": 2098,
-      "mid|False": 12259,
-      "mid|True": 5965,
-      "novice|False": 5669,
-      "novice|True": 2673
+      "expert|False": 4459,
+      "expert|True": 2215,
+      "mid|False": 12067,
+      "mid|True": 5852,
+      "novice|False": 5722,
+      "novice|True": 2618
     },
-    "challenges": 9883,
-    "challenge_hit_rate": 26.6,
-    "citations": 5435
+    "challenges": 9729,
+    "challenge_hit_rate": 27.7,
+    "citations": 5490
   },
   "results_summary": {
     "win_rates_ci": {
       "human": [
-        44.8,
-        41.7,
-        48.0
+        46.0,
+        43.0,
+        49.0
       ],
       "alien": [
-        30.3,
-        27.3,
-        33.3
+        29.6,
+        26.9,
+        32.5
       ],
       "foreigner": [
-        24.9,
-        22.4,
-        27.7
+        24.3,
+        21.7,
+        27.2
       ],
       "draw": [
+        0.1,
         0.0,
-        0.0,
-        0.0
+        0.3
       ]
     },
     "perspective_violations": 0,
-    "chat_effective_rate": 58.8
+    "chat_effective_rate": 58.4
   }
 }
